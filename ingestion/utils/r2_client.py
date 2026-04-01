@@ -3,6 +3,10 @@ import json
 import boto3
 from botocore.exceptions import ClientError
 from typing import List, Dict, Any
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 _S3_CLIENT = None
 
@@ -113,10 +117,6 @@ def list_keys(prefix: str) -> List[str]:
     return keys
 
 if __name__ == '__main__':
-    from dotenv import load_dotenv
-    
-    # Load environment variables for the test from .env if present
-    load_dotenv()
     
     test_key = "test/r2_client_test.json"
     test_data = {"message": "Hello from r2_client!", "status": "success"}

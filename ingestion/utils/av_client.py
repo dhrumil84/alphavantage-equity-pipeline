@@ -1,6 +1,10 @@
 import os
 import requests
 import logging
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 # Configure a basic logger for this module
 logger = logging.getLogger(__name__)
@@ -83,3 +87,9 @@ def fetch(params: dict) -> dict:
          raise AlphaVantageError(f"Alpha Vantage API Rate Limit Note: {data['Note']}")
 
     return data
+
+
+if __name__ == '__main__':
+    import json
+    result = fetch({'function': 'OVERVIEW', 'symbol': 'IBM'})
+    print(json.dumps(result, indent=2))
