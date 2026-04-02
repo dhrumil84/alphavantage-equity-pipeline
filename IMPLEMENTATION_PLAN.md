@@ -256,6 +256,18 @@ All scripts share a common pattern:
 
 ---
 
+### Task 2.6 — Earnings calendar ingestion
+
+**Prompt for agent:**
+> "Create `ingestion/ingest_earnings_calendar.py`. This script calls the EARNINGS_CALENDAR endpoint
+> (a single API call, not per-ticker). It returns a CSV.
+> Write the raw CSV bytes directly to bronze, same pattern as listing status.
+> Apply idempotency: skip if today's file already exists.
+>
+> Bronze path: `bronze/earnings_calendar/{pull_date}.csv`"
+
+---
+
 ## Phase 3 — Bronze → Silver Transformers
 
 Each transformer reads the latest available bronze file for each ticker,

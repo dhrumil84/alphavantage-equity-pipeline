@@ -21,7 +21,7 @@ equity-data-lake/
 │   ├── splits/{symbol}/{pull_date}.json
 │   ├── shares_outstanding/{symbol}/{pull_date}.json
 │   ├── listing_status/{pull_date}.csv         # no ticker subfolder — universe-level
-│   ├── earnings_calendar/{pull_date}.json     # bronze only, no silver table
+│   ├── earnings_calendar/{pull_date}.csv      # bronze only, no silver table
 │   └── ipo_calendar/{pull_date}.json          # bronze only, no silver table
 │
 └── silver/                                    # cleaned, typed Parquet — query target
