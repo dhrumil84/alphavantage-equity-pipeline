@@ -57,7 +57,7 @@ def fetch(params: dict) -> dict:
         log_msg += f", symbol={symbol}"
     logger.info(log_msg)
 
-    response = requests.get(BASE_URL, params=req_params)
+    response = requests.get(BASE_URL, params=req_params, verify=False)
 
     # Check for HTTP-level errors
     try:
@@ -87,6 +87,64 @@ def fetch(params: dict) -> dict:
          raise AlphaVantageError(f"Alpha Vantage API Rate Limit Note: {data['Note']}")
 
     return data
+
+def fetch_csv(params: dict) -> bytes:
+    """
+    Makes a GET request to the Alpha Vantage API for endpoints returning CSV data.
+    
+    Args:
+        params: Dictionary of query parameters. 'apikey' will be added automatically.
+
+    Returns:
+        The raw bytes of the CSV response.
+
+    Raises:
+        ValueError: If ALPHAVANTAGE_API_KEY is not set.
+        AlphaVantageHTTPError: If the HTTP request fails.
+        AlphaVantageError: If the API returns a JSON error message instead of CSV.
+    """
+    api_key = os.environ.get("ALPHAVANTAGE_API_KEY")
+    if not api_key:
+        raise ValueError("ALPHAVANTAGE_API_KEY environment variable is not set.")
+
+    req_params = params.copy()
+    req_params['apikey'] = api_key
+
+    function_name = req_params.get('function', 'UNKNOWN_FUNCTION')
+    symbol = req_params.get('symbol')
+    
+    log_msg = f"Calling Alpha Vantage (CSV): function={function_name}"
+    if symbol:
+        log_msg += f", symbol={symbol}"
+    logger.info(log_msg)
+
+    response = requests.get(BASE_URL, params=req_params, verify=False)
+
+    try:
+        response.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        raise AlphaVantageHTTPError(f"HTTP Error {response.status_code}: {response.text}") from e
+    except requests.exceptions.RequestException as e:
+        raise AlphaVantageHTTPError(f"Request failed: {e}") from e
+
+    content_type = response.headers.get("Content-Type", "")
+    
+    # If returned as JSON, it's typically an error or rate limit hit.
+    if "application/json" in content_type:
+        try:
+            data = response.json()
+            if "Error Message" in data:
+                raise AlphaVantageError(f"Alpha Vantage API Error: {data['Error Message']}")
+            if "Information" in data:
+                raise AlphaVantageError(f"Alpha Vantage API Information Message: {data['Information']}")
+            if "Note" in data and "call frequency" in data["Note"]:
+                raise AlphaVantageError(f"Alpha Vantage API Rate Limit Note: {data['Note']}")
+            
+            raise AlphaVantageError(f"Unexpected JSON response for a CSV endpoint: {data}")
+        except ValueError as e:
+            raise AlphaVantageError(f"Failed to parse unexpected JSON response: {response.text}") from e
+
+    return response.content
 
 
 if __name__ == '__main__':

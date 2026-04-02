@@ -1,6 +1,7 @@
 import os
 import json
 import boto3
+import certifi
 from botocore.exceptions import ClientError
 from typing import List, Dict, Any
 from pathlib import Path
@@ -31,7 +32,9 @@ def _get_client():
             endpoint_url=endpoint_url,
             aws_access_key_id=access_key_id,
             aws_secret_access_key=secret_access_key,
-            region_name="auto"
+            region_name="auto",
+            use_ssl=True,
+            verify=False
         )
     return _S3_CLIENT
 
