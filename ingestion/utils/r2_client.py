@@ -73,6 +73,16 @@ def upload_bytes(data: bytes, key: str) -> None:
         Body=data
     )
 
+def download_bytes(key: str) -> bytes:
+    """
+    Download raw bytes from R2.
+    """
+    client = _get_client()
+    bucket = _get_bucket()
+    
+    response = client.get_object(Bucket=bucket, Key=key)
+    return response['Body'].read()
+
 def download_json(key: str) -> dict:
     """
     Download a JSON object from R2 and deserialise it into a dictionary.
