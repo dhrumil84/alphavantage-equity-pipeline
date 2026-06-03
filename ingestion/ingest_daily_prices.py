@@ -58,10 +58,18 @@ def main():
     for i, symbol in enumerate(active_symbols, start=1):
         r2_key = f"bronze/daily_prices/{symbol}/{pull_date}.json"
 
-        # Check idempotency only in incremental mode
+        # In incremental mode, skip if today's file exists
         if args.mode == 'incremental' and r2_client.key_exists(r2_key):
-            logger.info(f"[{i}/{total}] {symbol} — skipped (exists)")
+            logger.info(f"[{i}/{total}] {symbol} — skipped (today's file already exists)")
             continue
+            
+        # In full mode, check if we already have historical price data for this symbol in bronze
+        # to prevent re-fetching the entire 20-year history on every full load trigger
+        if args.mode == 'full':
+            existing_keys = r2_client.list_keys(f"bronze/daily_prices/{symbol}/")
+            if existing_keys:
+                logger.info(f"[{i}/{total}] {symbol} — skipped (historical price data already exists in bronze)")
+                continue
             
         limiter.wait()
         

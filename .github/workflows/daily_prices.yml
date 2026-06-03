@@ -5,7 +5,15 @@ on:
     # Run at 23:00 UTC (6pm ET) Monday through Friday
     - cron: '0 23 * * 1-5'
   workflow_dispatch:
-    # Allows manual trigger from GitHub UI
+    inputs:
+      mode:
+        description: 'Ingestion mode (full or incremental)'
+        required: true
+        default: 'incremental'
+        type: choice
+        options:
+        - incremental
+        - full
 
 jobs:
   run-pipeline:
@@ -33,7 +41,7 @@ jobs:
         R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
         R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
-      run: python -m ingestion.ingest_daily_prices --mode incremental
+      run: python -m ingestion.ingest_daily_prices --mode ${{ github.event.inputs.mode || 'incremental' }}
 
     - name: Transform Daily Prices
       env:
