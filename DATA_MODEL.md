@@ -71,11 +71,17 @@ All silver tables enforce three rules without exception:
 2. **Dates are dates.** Every date string (e.g. `"2026-03-06"`) is parsed to a proper
    DATE type. No date strings in silver.
 
-3. **No derived metrics.** Silver contains cleaned source data only. Ratios, returns,
-   growth rates, and other computed fields belong in DuckDB queries or notebooks.
+3. **No derived metrics in silver.** Silver contains cleaned source data only. Ratios,
+   returns, growth rates, and other computed fields belong in the gold layer (see below),
+   in DuckDB queries, or in notebooks — not in silver.
    Exception: `free_cash_flow` is pre-computed in `fact_cash_flow` because Alpha Vantage
    does not return it reliably, and it is a direct arithmetic combination of two columns
    in the same row.
+
+The gold layer (`gold/...`) is the designated home for derived metrics, pre-joined wide
+tables, and pre-aggregated cohort statistics. Rules #1 and #2 (no string "None", proper
+date types) still apply to gold. Rule #3 does not — gold exists specifically to hold
+derived fields built from silver.
 
 ---
 
