@@ -36,4 +36,6 @@ def main():
         logger.error(f"Unexpected error during earnings calendar ingestion: {e}")
 
 if __name__ == '__main__':
-    main()
+    from observability.metrics import RunMetrics
+    with RunMetrics("ingest_earnings_calendar"):
+        main()

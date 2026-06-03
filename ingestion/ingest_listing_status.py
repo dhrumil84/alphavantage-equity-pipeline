@@ -53,4 +53,6 @@ def main():
     logger.info(f"Successfully uploaded {len(combined_bytes)} bytes to {r2_key}.")
 
 if __name__ == '__main__':
-    main()
+    from observability.metrics import RunMetrics
+    with RunMetrics("ingest_listing_status"):
+        main()

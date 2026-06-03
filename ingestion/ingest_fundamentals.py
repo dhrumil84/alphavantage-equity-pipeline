@@ -81,4 +81,6 @@ def main():
                 logger.error(f"[{i}/{total}] {symbol} — Unexpected error for {av_function}: {e}")
 
 if __name__ == '__main__':
-    main()
+    from observability.metrics import RunMetrics
+    with RunMetrics("ingest_fundamentals"):
+        main()

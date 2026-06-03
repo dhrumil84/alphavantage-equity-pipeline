@@ -94,4 +94,6 @@ def main():
             logger.error(f"[{i}/{total}] {symbol} — Unexpected error: {e}")
 
 if __name__ == '__main__':
-    main()
+    from observability.metrics import RunMetrics
+    with RunMetrics("ingest_daily_prices"):
+        main()
