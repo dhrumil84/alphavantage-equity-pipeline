@@ -92,9 +92,11 @@ def main():
     # columns in ticker_universe.csv: symbol,name,active
     new_rows = []
     for _, row in sampled_df.iterrows():
+        symbol = str(row['symbol']).strip().upper() if pd.notna(row['symbol']) else ""
+        name = str(row['name']).strip() if pd.notna(row['name']) else ""
         new_rows.append({
-            "symbol": row['symbol'].strip().upper(),
-            "name": row['name'].strip(),
+            "symbol": symbol,
+            "name": name,
             "active": "true"
         })
 
