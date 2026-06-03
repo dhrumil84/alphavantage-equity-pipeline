@@ -102,6 +102,7 @@ def main():
     active_universe_symbols = set(key.split('/')[2] for key in overview_keys if len(key.split('/')) >= 4)
     logger.info(f"Active universe symbols with R2 overview data: {active_universe_symbols}")
 
+    processed_symbols = set()
     for _, row in combined_listings.iterrows():
         symbol = clean_str(row.get("symbol"))
         if not symbol:
@@ -110,6 +111,12 @@ def main():
         # Only process if symbol is in our active universe
         if symbol not in active_universe_symbols:
             continue
+
+        # Deduplicate to keep the first (active status has precedence) row per symbol
+        if symbol in processed_symbols:
+            logger.info(f"Symbol {symbol} already processed, skipping duplicate listing row.")
+            continue
+        processed_symbols.add(symbol)
 
         # Start with authoritative values from listing status
         name = clean_str(row.get("name"))
