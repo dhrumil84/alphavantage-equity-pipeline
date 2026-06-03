@@ -1,0 +1,51 @@
+name: Weekly Refresh Pipeline
+
+on:
+  schedule:
+    # Run at 06:00 UTC every Sunday
+    - cron: '0 6 * * 0'
+  workflow_dispatch:
+    # Allows manual trigger from GitHub UI
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run Ingestions
+      env:
+        ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
+        R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+        R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+      run: |
+        python -m ingestion.ingest_listing_status
+        python -m ingestion.ingest_overview
+        python -m ingestion.ingest_fundamentals
+        python -m ingestion.ingest_corporate_actions
+
+    - name: Run Transformations
+      env:
+        R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+        R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+      run: |
+        python -m transform.transform_overview
+        python -m transform.transform_fundamentals
+        python -m transform.transform_corporate_actions
