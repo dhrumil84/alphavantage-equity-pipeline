@@ -4,3 +4,9 @@ __pycache__/
 .DS_Store
 *.egg-info/
 .venv/
+
+# Personal planning / career docs — keep local only
+PLAN_v2.md
+*.docx
+*.doc
+_plan.txt
