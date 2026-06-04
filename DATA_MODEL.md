@@ -284,6 +284,115 @@ Deduplication key: `(symbol, effective_date)`
 
 ---
 
+## Gold Layer (Phase A)
+
+Gold tables are purpose-built for analysis. They hold derived metrics,
+pre-joined wide tables, and pre-aggregated cohort statistics. They are
+fully rebuilt on each run — no upsert semantics. Silver remains the
+source of truth; gold is a fast-access view over it.
+
+R2 layout:
+
+```
+gold/
+├── fact_fundamentals_wide/
+│   └── fact_fundamentals_wide.parquet
+├── fact_prices_enriched/
+│   ├── year=2005/fact_prices_enriched.parquet
+│   ├── ...
+│   └── year=2026/fact_prices_enriched.parquet
+└── dim_company_enriched/
+    └── dim_company_enriched.parquet
+```
+
+### `fact_fundamentals_wide`
+
+One row per `(symbol, fiscal_date_ending, period_type)`. Joins all four
+silver fundamentals tables and adds derived columns.
+
+| Group | Columns |
+|---|---|
+| Identifiers | symbol, fiscal_date_ending, period_type, reported_currency |
+| Income stmt | total_revenue, gross_profit, ebitda, operating_income, net_income, eps_basic, eps_diluted, r_and_d, sga, interest_expense, income_tax |
+| Balance sht | total_assets, total_liabilities, total_equity, cash_and_equivalents, short_term_investments, current_assets, current_liabilities, long_term_debt, short_term_debt, retained_earnings, goodwill, intangible_assets |
+| Cash flow | operating_cashflow, capex, free_cash_flow, dividend_payout, repurchase_of_stock, proceeds_from_debt, repayment_of_debt, investing_cashflow, financing_cashflow, change_in_cash |
+| Earnings | reported_eps, estimated_eps, surprise, surprise_pct, report_date |
+| **Margins** | gross_margin, operating_margin, net_margin, fcf_margin, ebitda_margin |
+| **Returns** | roe, roa, roic |
+| **Leverage** | debt_to_equity, net_debt, interest_coverage |
+| **Quality** | cash_conversion, accruals_ratio |
+| **Growth** | revenue_growth_yoy, net_income_growth_yoy, eps_growth_yoy, fcf_growth_yoy, operating_cf_growth_yoy, revenue_growth_qoq |
+| **TTM** (quarterly rows only) | total_revenue_ttm, net_income_ttm, operating_income_ttm, ebitda_ttm, free_cash_flow_ttm, operating_cashflow_ttm, eps_diluted_ttm, capex_ttm, dividend_payout_ttm |
+| **EPS CAGR** | eps_cagr_5y, eps_cagr_3y, eps_cagr_as_of |
+| Metadata | pull_date, gold_built_utc |
+
+Notes:
+- YoY uses 4-period lag for quarterly, 1-period lag for annual.
+- TTM is `SUM(...) OVER (last 4 quarters)` — null on annual rows.
+- EPS CAGR is computed on annual rows only, then propagated to all rows
+  for the same symbol. Null when either endpoint EPS is non-positive
+  (sign flips make CAGR meaningless).
+
+Cadence: weekly (after `transform_fundamentals`).
+
+### `fact_prices_enriched`
+
+One row per `(symbol, trade_date)`. Partitioned by year.
+
+| Group | Columns |
+|---|---|
+| Identifiers | symbol, trade_date |
+| Raw (from silver) | open, high, low, close, adjusted_close, volume, dividend_amount, split_coefficient, pull_date |
+| **Returns** | return_1d, return_5d, return_21d, return_63d, return_126d, return_252d |
+| **Volatility** | volatility_30d, volatility_90d (annualized stdev of daily returns) |
+| **Volume** | dollar_volume, volume_avg_20d, volume_ratio_20d |
+| **52w range** | high_52w, low_52w, pct_off_52w_high, pct_off_52w_low, drawdown_from_52w_high |
+| **MAs** | sma_20, sma_50, sma_200, ema_12, ema_26 |
+| **MACD** | macd, macd_signal, macd_hist |
+| **Bollinger** | bb_middle, bb_upper, bb_lower, bb_pct_b |
+| **RSI** | rsi_14 (Wilder's smoothing) |
+| **ATR** | atr_14 |
+| **Relative strength vs SPY** | rel_strength_vs_spy_3m, rel_strength_vs_spy_6m, rel_strength_vs_spy_12m |
+| Metadata | gold_built_utc |
+
+Notes:
+- All return / MA / Bollinger / RSI calculations use `adjusted_close`.
+  ATR uses raw OHLC (it measures intra-day range, not corporate-action moves).
+- Relative strength uses `(1 + r_ticker) / (1 + r_spy) - 1` so it's
+  meaningful even when one leg is negative.
+- Rebuilt fully each day. ~107 tickers × ~5000 days = ~500K rows.
+
+Cadence: daily (after `transform_daily_prices`).
+
+### `dim_company_enriched`
+
+One row per symbol. Spine = `dim_company`. Joins latest TTM snapshot from
+`fact_fundamentals_wide` and latest-price-derived returns from silver
+prices.
+
+| Group | Columns |
+|---|---|
+| All of silver `dim_company` | symbol, name, exchange, asset_type, cik, sector, industry, country, currency, fiscal_year_end, listing_status, ipo_date, delisted_date, market_cap, shares_outstanding, last_updated |
+| Latest TTM | latest_quarter_end, total_revenue_ttm, net_income_ttm, ebitda_ttm, free_cash_flow_ttm, operating_cashflow_ttm, eps_diluted_ttm, dividend_payout_ttm |
+| Latest margins | gross_margin, operating_margin, net_margin, fcf_margin |
+| Latest returns on capital | roe, roa, roic |
+| Latest leverage | debt_to_equity, net_debt |
+| Latest growth | revenue_growth_yoy, eps_growth_yoy, fcf_growth_yoy |
+| EPS CAGR | eps_cagr_5y, eps_cagr_3y |
+| Latest price | as_of_date, latest_close, market_cap_latest |
+| Trailing returns | price_return_1y, price_return_3y, price_return_5y |
+| Metadata | gold_built_utc |
+
+Notes:
+- `market_cap_latest` = `latest_close × shares_outstanding`. Shares are
+  point-in-time from `dim_company` (last weekly refresh).
+- Trailing returns are price-only (not total return including dividends).
+  True total return is a Phase B addition.
+
+Cadence: weekly (after `build_fundamentals_wide`).
+
+---
+
 ## DuckDB Query Patterns
 
 ### How to read silver Parquet files from R2

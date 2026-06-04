@@ -25,6 +25,7 @@ import duckdb
 
 
 SILVER_ROOT = "s3://{bucket}/silver"
+GOLD_ROOT = "s3://{bucket}/gold"
 
 
 @dataclass
@@ -44,6 +45,18 @@ class CheckResult:
 def _scan(con: duckdb.DuckDBPyConnection, bucket: str, path: str) -> str:
     """Return a read_parquet() SQL expression for a silver table glob."""
     return f"read_parquet('s3://{bucket}/silver/{path}', union_by_name=true)"
+
+
+def _gold_scan(con: duckdb.DuckDBPyConnection, bucket: str, path: str) -> str:
+    return f"read_parquet('s3://{bucket}/gold/{path}', union_by_name=true)"
+
+
+def _gold_table_exists(con, bucket: str, path: str) -> bool:
+    try:
+        con.execute(f"SELECT 1 FROM {_gold_scan(con, bucket, path)} LIMIT 1").fetchone()
+        return True
+    except Exception:
+        return False
 
 
 def _table_exists(con: duckdb.DuckDBPyConnection, bucket: str, path: str) -> bool:
@@ -252,6 +265,21 @@ REQUIRED_COLS = {
 }
 
 
+def check_gold_table_has_rows(con, bucket: str, path: str, name: str,
+                                severity: str = "critical") -> CheckResult:
+    if not _gold_table_exists(con, bucket, path):
+        return CheckResult(name=f"gold.{name}.row_count", severity=severity, status="fail",
+                            details={"row_count": 0}, message=f"gold/{name} not found")
+    n = con.execute(f"SELECT COUNT(*) FROM {_gold_scan(con, bucket, path)}").fetchone()[0]
+    return CheckResult(
+        name=f"gold.{name}.row_count",
+        severity=severity,
+        status="pass" if n > 0 else "fail",
+        details={"row_count": n},
+        message=f"gold/{name} has {n:,} rows",
+    )
+
+
 def daily_suite(con, bucket: str) -> list[CheckResult]:
     """Checks run after the daily prices pipeline."""
     results = [
@@ -260,6 +288,9 @@ def daily_suite(con, bucket: str) -> list[CheckResult]:
                      "fact_daily_prices", REQUIRED_COLS["fact_daily_prices"]),
         check_adjusted_close_null_rate(con, bucket),
         *check_daily_prices_freshness(con, bucket),
+        check_gold_table_has_rows(con, bucket,
+                                   "fact_prices_enriched/**/*.parquet",
+                                   "fact_prices_enriched"),
     ]
     return results
 
@@ -281,6 +312,12 @@ def weekly_suite(con, bucket: str) -> list[CheckResult]:
         results.append(check_table_has_rows(con, bucket, table, name, severity="warn"))
         results.append(check_schema(con, bucket, table, name, REQUIRED_COLS[name]))
         results.append(check_fundamentals_coverage(con, bucket, table, name))
+
+    # Gold weekly tables
+    results.append(check_gold_table_has_rows(
+        con, bucket, "fact_fundamentals_wide/*.parquet", "fact_fundamentals_wide"))
+    results.append(check_gold_table_has_rows(
+        con, bucket, "dim_company_enriched/*.parquet", "dim_company_enriched"))
     return results
 
 

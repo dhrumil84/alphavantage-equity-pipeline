@@ -51,6 +51,14 @@ jobs:
         R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
       run: python -m transform.transform_daily_prices
 
+    - name: Build Gold — fact_prices_enriched
+      env:
+        R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+        R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+      run: python -m transform_gold.build_prices_enriched
+
     - name: Data Quality Checks (daily suite)
       env:
         R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}

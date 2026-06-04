@@ -50,6 +50,17 @@ jobs:
         python -m transform.transform_fundamentals
         python -m transform.transform_corporate_actions
 
+    - name: Build Gold (weekly tables)
+      env:
+        R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+        R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+      # Order matters: dim_company_enriched reads from fact_fundamentals_wide.
+      run: |
+        python -m transform_gold.build_fundamentals_wide
+        python -m transform_gold.build_dim_company_enriched
+
     - name: Data Quality Checks (weekly suite)
       env:
         R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
