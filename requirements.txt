@@ -4,3 +4,6 @@ pandas
 pyarrow
 python-dotenv
 duckdb
+# Local notebook use (not needed by workflow scripts):
+matplotlib
+jupyter
