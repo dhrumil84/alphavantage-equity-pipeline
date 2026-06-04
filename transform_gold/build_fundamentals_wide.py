@@ -71,9 +71,14 @@ SELECT
     COALESCE(inc.period_type, bal.period_type, cf.period_type, ern.period_type) AS period_type,
     COALESCE(inc.reported_currency, bal.reported_currency, cf.reported_currency) AS reported_currency,
 
-    -- Income statement
-    inc.total_revenue, inc.gross_profit, inc.ebitda, inc.operating_income, inc.net_income,
-    inc.eps_basic, inc.eps_diluted, inc.r_and_d, inc.sga, inc.interest_expense, inc.income_tax,
+    -- Income statement (note: AV's INCOME_STATEMENT does not return EPS;
+    -- reported_eps comes via the EARNINGS endpoint joined as `ern` below)
+    inc.total_revenue, inc.cost_of_revenue, inc.gross_profit,
+    inc.operating_expenses, inc.operating_income,
+    inc.ebit, inc.ebitda, inc.depreciation_amortization,
+    inc.income_before_tax, inc.income_tax,
+    inc.net_income, inc.net_income_continuing_ops,
+    inc.r_and_d, inc.sga, inc.interest_expense,
 
     -- Balance sheet
     bal.total_assets, bal.total_liabilities, bal.total_equity,
@@ -162,7 +167,7 @@ def add_growth(df: pd.DataFrame) -> pd.DataFrame:
         # 4 periods back if quarterly, 1 period back if annual
         lag_n = 4 if g.name[1] == "quarterly" else 1
         out = pd.DataFrame(index=g.index)
-        for col in ["total_revenue", "net_income", "eps_diluted", "free_cash_flow", "operating_cashflow"]:
+        for col in ["total_revenue", "net_income", "reported_eps", "free_cash_flow", "operating_cashflow"]:
             prev = g[col].shift(lag_n)
             out[f"{col}_yoy"] = (g[col] - prev) / prev.where(prev != 0)
         return out
@@ -171,7 +176,7 @@ def add_growth(df: pd.DataFrame) -> pd.DataFrame:
     yoy = grp.apply(yoy_lag)
     df["revenue_growth_yoy"]       = yoy["total_revenue_yoy"]
     df["net_income_growth_yoy"]    = yoy["net_income_yoy"]
-    df["eps_growth_yoy"]           = yoy["eps_diluted_yoy"]
+    df["eps_growth_yoy"]           = yoy["reported_eps_yoy"]
     df["fcf_growth_yoy"]           = yoy["free_cash_flow_yoy"]
     df["operating_cf_growth_yoy"]  = yoy["operating_cashflow_yoy"]
 
@@ -194,7 +199,7 @@ def add_ttm(df: pd.DataFrame) -> pd.DataFrame:
     df = df.sort_values(["symbol", "period_type", "fiscal_date_ending"]).reset_index(drop=True)
 
     ttm_cols = ["total_revenue", "net_income", "operating_income", "ebitda",
-                "free_cash_flow", "operating_cashflow", "eps_diluted", "capex",
+                "free_cash_flow", "operating_cashflow", "reported_eps", "capex",
                 "dividend_payout"]
 
     q_mask = df["period_type"] == "quarterly"
@@ -215,10 +220,10 @@ def add_eps_cagr(df: pd.DataFrame) -> pd.DataFrame:
     """Trailing 5y and 3y EPS CAGR computed on annual rows; propagated to all rows
     for the same symbol.
 
-    Source: `reported_eps` (from fact_earnings) rather than `eps_diluted`
-    (from fact_income_statement). Silver currently drops eps_diluted on the
-    income statement transform — until that's fixed, reported_eps is more
-    reliable, and it's the actually-reported figure anyway.
+    Source: `reported_eps` from fact_earnings. AV's INCOME_STATEMENT endpoint
+    does not return EPS at all (confirmed across multiple tickers), so silver
+    fact_income_statement intentionally does not carry an EPS column. The
+    actually-reported figure from the EARNINGS endpoint is the canonical source.
 
     CAGR is undefined when either endpoint EPS is null or non-positive — null out.
     """

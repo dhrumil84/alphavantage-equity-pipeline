@@ -48,7 +48,7 @@ def main():
             SELECT
                 symbol, fiscal_date_ending,
                 total_revenue_ttm, net_income_ttm, ebitda_ttm,
-                free_cash_flow_ttm, operating_cashflow_ttm, eps_diluted_ttm,
+                free_cash_flow_ttm, operating_cashflow_ttm, reported_eps_ttm,
                 dividend_payout_ttm,
                 gross_margin, operating_margin, net_margin, fcf_margin,
                 roe, roa, roic,

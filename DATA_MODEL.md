@@ -152,19 +152,26 @@ One row per ticker per fiscal period per period type (annual or quarterly).
 | period_type | VARCHAR | API | 'annual' or 'quarterly' |
 | reported_currency | VARCHAR | API | |
 | total_revenue | BIGINT | API | |
+| cost_of_revenue | BIGINT | API | |
 | gross_profit | BIGINT | API | |
-| ebitda | BIGINT | API | |
+| operating_expenses | BIGINT | API | |
 | operating_income | BIGINT | API | |
+| ebit | BIGINT | API | Earnings before interest & tax |
+| ebitda | BIGINT | API | |
+| depreciation_amortization | BIGINT | API | |
+| income_before_tax | BIGINT | API | |
+| income_tax | BIGINT | API | |
 | net_income | BIGINT | API | |
-| eps_basic | DECIMAL(18,4) | API | |
-| eps_diluted | DECIMAL(18,4) | API | |
+| net_income_continuing_ops | BIGINT | API | Excludes discontinued operations |
 | r_and_d | BIGINT | API | Research & Development |
 | sga | BIGINT | API | Sales, General & Admin |
 | interest_expense | BIGINT | API | |
-| income_tax | BIGINT | API | |
 | pull_date | DATE | pipeline | |
 
 Deduplication key: `(symbol, fiscal_date_ending, period_type)`
+
+**EPS is not in this table.** Alpha Vantage's `INCOME_STATEMENT` endpoint does
+not return EPS fields. Use `fact_earnings.reported_eps` instead.
 
 ---
 
@@ -249,6 +256,14 @@ Deduplication key: `(symbol, fiscal_date_ending, period_type)`
 Always filter backtests using `report_date`, never `fiscal_date_ending`.
 Using `fiscal_date_ending` implies you knew Q1 results on March 31 — you didn't.
 
+**Note on `annualEarnings` filtering:**
+Alpha Vantage's `EARNINGS` endpoint's `annualEarnings` array contains a
+spurious rolling-TTM entry at the most recent quarter end, alongside the
+true fiscal-year-end annual entries. The silver transform filters these
+out by detecting the dominant fiscal-year-end MM-DD pattern across all
+entries and keeping only matching rows. Silver should contain only true
+fiscal-year-end annual rows.
+
 ---
 
 ### `fact_dividends`
@@ -322,7 +337,7 @@ silver fundamentals tables and adds derived columns.
 | **Leverage** | debt_to_equity, net_debt, interest_coverage |
 | **Quality** | cash_conversion, accruals_ratio |
 | **Growth** | revenue_growth_yoy, net_income_growth_yoy, eps_growth_yoy, fcf_growth_yoy, operating_cf_growth_yoy, revenue_growth_qoq |
-| **TTM** (quarterly rows only) | total_revenue_ttm, net_income_ttm, operating_income_ttm, ebitda_ttm, free_cash_flow_ttm, operating_cashflow_ttm, eps_diluted_ttm, capex_ttm, dividend_payout_ttm |
+| **TTM** (quarterly rows only) | total_revenue_ttm, net_income_ttm, operating_income_ttm, ebitda_ttm, free_cash_flow_ttm, operating_cashflow_ttm, reported_eps_ttm, capex_ttm, dividend_payout_ttm |
 | **EPS CAGR** | eps_cagr_5y, eps_cagr_3y, eps_cagr_as_of |
 | Metadata | pull_date, gold_built_utc |
 
@@ -373,7 +388,7 @@ prices.
 | Group | Columns |
 |---|---|
 | All of silver `dim_company` | symbol, name, exchange, asset_type, cik, sector, industry, country, currency, fiscal_year_end, listing_status, ipo_date, delisted_date, market_cap, shares_outstanding, last_updated |
-| Latest TTM | latest_quarter_end, total_revenue_ttm, net_income_ttm, ebitda_ttm, free_cash_flow_ttm, operating_cashflow_ttm, eps_diluted_ttm, dividend_payout_ttm |
+| Latest TTM | latest_quarter_end, total_revenue_ttm, net_income_ttm, ebitda_ttm, free_cash_flow_ttm, operating_cashflow_ttm, reported_eps_ttm, dividend_payout_ttm |
 | Latest margins | gross_margin, operating_margin, net_margin, fcf_margin |
 | Latest returns on capital | roe, roa, roic |
 | Latest leverage | debt_to_equity, net_debt |

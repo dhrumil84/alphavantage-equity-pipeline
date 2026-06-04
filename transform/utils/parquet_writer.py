@@ -37,11 +37,22 @@ def upsert_parquet(new_df: pd.DataFrame, s3_key: str, dedup_keys: list[str]) -> 
     else:
         combined_df = new_df.copy()
 
+    # 2a. Normalize any date-like dedup keys BEFORE drop_duplicates.
+    # Without this, an existing row loaded from Parquet (fiscal_date_ending as
+    # date32 → python date) won't equal a new row built from JSON (string),
+    # so drop_duplicates treats them as distinct and duplicates accumulate
+    # one-per-run. Same for any other key column containing "date".
+    for key_col in dedup_keys:
+        if key_col in combined_df.columns and 'date' in key_col.lower():
+            combined_df[key_col] = pd.to_datetime(
+                combined_df[key_col], errors='coerce'
+            ).dt.date
+
     # 3. Deduplicate on dedup_keys keeping latest pull_date
     if 'pull_date' in combined_df.columns:
         combined_df['pull_date'] = pd.to_datetime(combined_df['pull_date'])
         combined_df = combined_df.sort_values('pull_date', ascending=False)
-        
+
     combined_df = combined_df.drop_duplicates(subset=dedup_keys, keep='first')
     
     # Force columns with 'date' in the name into python dates to help pyarrow detection

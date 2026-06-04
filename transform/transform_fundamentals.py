@@ -2,9 +2,36 @@ import os
 import csv
 import logging
 import pandas as pd
+from collections import Counter
 from datetime import datetime
 from ingestion.utils import r2_client
 from transform.utils.parquet_writer import upsert_parquet
+
+
+def filter_real_annual_earnings(annual_earnings: list[dict]) -> list[dict]:
+    """Alpha Vantage's `annualEarnings` array consistently inserts a rolling-TTM
+    entry as the first item, dated to the most recent quarter end (not the
+    company's fiscal year end). E.g. AAPL has FY end Sept 30 but AV inserts
+    a '2026-03-31' entry alongside the real '2025-09-30' annual row.
+
+    Filter approach: find the dominant MM-DD across all entries and keep only
+    matching ones. The spurious TTM entry will always be the outlier.
+
+    Skips filtering if too few entries to establish a pattern (<3).
+    """
+    if not annual_earnings:
+        return []
+    if len(annual_earnings) < 3:
+        return annual_earnings
+
+    mmdd = [e.get("fiscalDateEnding", "")[-5:] for e in annual_earnings
+            if e.get("fiscalDateEnding")]
+    if not mmdd:
+        return annual_earnings
+
+    dominant, _ = Counter(mmdd).most_common(1)[0]
+    return [e for e in annual_earnings
+            if e.get("fiscalDateEnding", "")[-5:] == dominant]
 
 # Configure basic logging
 logging.basicConfig(
@@ -82,22 +109,30 @@ def transform_income_statements(latest_files: dict[str, str]):
 
         for period_type, reports in reports_map.items():
             for report in reports:
+                # NOTE: Alpha Vantage's INCOME_STATEMENT endpoint does not
+                # return any EPS fields — basicEarningsPerShare / dilutedEarningsPerShare
+                # are not in the response. EPS is captured separately in
+                # fact_earnings.reported_eps. Do not re-add EPS columns here.
                 row = {
                     "symbol": symbol,
                     "fiscal_date_ending": clean_val(report.get("fiscalDateEnding"), "str"),
                     "period_type": period_type,
                     "reported_currency": clean_val(report.get("reportedCurrency"), "str"),
                     "total_revenue": clean_val(report.get("totalRevenue"), "int"),
+                    "cost_of_revenue": clean_val(report.get("costOfRevenue"), "int"),
                     "gross_profit": clean_val(report.get("grossProfit"), "int"),
-                    "ebitda": clean_val(report.get("ebitda"), "int"),
+                    "operating_expenses": clean_val(report.get("operatingExpenses"), "int"),
                     "operating_income": clean_val(report.get("operatingIncome"), "int"),
+                    "ebit": clean_val(report.get("ebit"), "int"),
+                    "ebitda": clean_val(report.get("ebitda"), "int"),
+                    "depreciation_amortization": clean_val(report.get("depreciationAndAmortization"), "int"),
+                    "income_before_tax": clean_val(report.get("incomeBeforeTax"), "int"),
+                    "income_tax": clean_val(report.get("incomeTaxExpense"), "int"),
                     "net_income": clean_val(report.get("netIncome"), "int"),
-                    "eps_basic": clean_val(report.get("basicEarningsPerShare"), "float"),
-                    "eps_diluted": clean_val(report.get("dilutedEarningsPerShare"), "float"),
+                    "net_income_continuing_ops": clean_val(report.get("netIncomeFromContinuingOperations"), "int"),
                     "r_and_d": clean_val(report.get("researchAndDevelopment"), "int"),
                     "sga": clean_val(report.get("sellingGeneralAndAdministrative"), "int"),
                     "interest_expense": clean_val(report.get("interestExpense"), "int"),
-                    "income_tax": clean_val(report.get("incomeTaxExpense"), "int"),
                     "pull_date": pull_date
                 }
                 rows.append(row)
@@ -231,9 +266,14 @@ def transform_earnings(latest_files: dict[str, str]):
 
         pull_date = data.get("pull_date", key.split('/')[-1].replace('.json', ''))
         
-        # Ingest both annual and quarterly earnings
-        # Note: Annual earnings only have fiscalDateEnding and reportedEPS keys
-        annual_earnings = data.get("annualEarnings", [])
+        # Ingest both annual and quarterly earnings.
+        # AV's annualEarnings includes a spurious rolling-TTM entry at the most
+        # recent quarter end (not the company's fiscal year end). Filter it out.
+        annual_earnings_raw = data.get("annualEarnings", [])
+        annual_earnings = filter_real_annual_earnings(annual_earnings_raw)
+        dropped = len(annual_earnings_raw) - len(annual_earnings)
+        if dropped:
+            logger.debug(f"{symbol}: filtered {dropped} spurious annualEarnings row(s)")
         quarterly_earnings = data.get("quarterlyEarnings", [])
 
         for report in annual_earnings:
