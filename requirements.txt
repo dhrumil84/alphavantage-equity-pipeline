@@ -1,6 +1,7 @@
 requests
 boto3
 pandas
+openpyxl
 pyarrow
 python-dotenv
 duckdb

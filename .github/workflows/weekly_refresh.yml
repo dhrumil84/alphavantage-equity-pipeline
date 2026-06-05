@@ -35,6 +35,7 @@ jobs:
         R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
       run: |
         python -m ingestion.ingest_listing_status
+        python -m ingestion.ingest_itot_holdings
         python -m ingestion.ingest_overview
         python -m ingestion.ingest_fundamentals
         python -m ingestion.ingest_corporate_actions
