@@ -280,6 +280,107 @@ def check_gold_table_has_rows(con, bucket: str, path: str, name: str,
     )
 
 
+def check_gold_valuation_daily_coverage(con, bucket: str) -> CheckResult:
+    """Every ticker present in fact_prices_enriched should be present in
+    fact_valuation_daily. Catches catastrophic join failure regardless of
+    universe size (scales from 107 → 8K tickers without retuning)."""
+    if not _gold_table_exists(con, bucket, "fact_valuation_daily/**/*.parquet"):
+        return CheckResult(
+            name="gold.fact_valuation_daily.symbol_coverage",
+            severity="critical", status="fail",
+            details={}, message="gold/fact_valuation_daily not found",
+        )
+    row = con.execute(f"""
+        WITH p AS (
+            SELECT DISTINCT symbol FROM {_gold_scan(con, bucket, 'fact_prices_enriched/**/*.parquet')}
+        ),
+        v AS (
+            SELECT DISTINCT symbol FROM {_gold_scan(con, bucket, 'fact_valuation_daily/**/*.parquet')}
+        )
+        SELECT
+            (SELECT COUNT(*) FROM p) AS prices_n,
+            (SELECT COUNT(*) FROM p INNER JOIN v USING (symbol)) AS covered_n
+    """).fetchone()
+    prices_n, covered_n = row[0] or 0, row[1] or 0
+    missing = prices_n - covered_n
+    return CheckResult(
+        name="gold.fact_valuation_daily.symbol_coverage",
+        severity="critical",
+        status="pass" if missing == 0 and prices_n > 0 else "fail",
+        details={"prices_symbols": prices_n, "valuation_symbols": covered_n,
+                 "missing": missing},
+        message=f"valuation covers {covered_n}/{prices_n} symbols in prices_enriched",
+    )
+
+
+def check_gold_sector_aggregates_coverage(con, bucket: str) -> CheckResult:
+    """Every sector that has ≥1 symbol with a populated TTM revenue value
+    (i.e. anything other than an all-ETF sector) should appear in the
+    latest aggregate snapshot. Sectors like 'OTHER' that hold only SPY/QQQ
+    are correctly excluded — they have no computable metrics."""
+    if not _gold_table_exists(con, bucket, "fact_sector_aggregates/*.parquet"):
+        return CheckResult(
+            name="gold.fact_sector_aggregates.sector_coverage",
+            severity="critical", status="fail",
+            details={}, message="gold/fact_sector_aggregates not found",
+        )
+    row = con.execute(f"""
+        WITH s AS (
+            -- Sectors that contain at least one symbol with a populated
+            -- quarterly TTM revenue — anything else has no metrics to aggregate.
+            SELECT DISTINCT d.sector
+            FROM {_scan(con, bucket, 'dim_company/*.parquet')} d
+            INNER JOIN {_gold_scan(con, bucket, 'fact_fundamentals_wide/*.parquet')} f
+              ON d.symbol = f.symbol
+            WHERE d.sector IS NOT NULL
+              AND f.period_type = 'quarterly'
+              AND f.total_revenue_ttm IS NOT NULL
+        ),
+        a AS (
+            SELECT DISTINCT group_value AS sector
+            FROM {_gold_scan(con, bucket, 'fact_sector_aggregates/*.parquet')}
+            WHERE grouping_level = 'sector'
+              AND as_of_date = (SELECT MAX(as_of_date)
+                                FROM {_gold_scan(con, bucket, 'fact_sector_aggregates/*.parquet')})
+        )
+        SELECT
+            (SELECT COUNT(*) FROM s) AS sector_n,
+            (SELECT COUNT(*) FROM s INNER JOIN a USING (sector)) AS covered_n
+    """).fetchone()
+    sector_n, covered_n = row[0] or 0, row[1] or 0
+    return CheckResult(
+        name="gold.fact_sector_aggregates.sector_coverage",
+        severity="critical",
+        status="pass" if covered_n == sector_n and sector_n > 0 else "fail",
+        details={"expected_sectors": sector_n, "covered_sectors": covered_n},
+        message=f"sector_aggregates covers {covered_n}/{sector_n} sectors with computable metrics",
+    )
+
+
+def check_gold_peer_relative_percentile_bounds(con, bucket: str) -> CheckResult:
+    """sector_percentile / industry_percentile must lie in [0, 1]."""
+    if not _gold_table_exists(con, bucket, "fact_peer_relative/*.parquet"):
+        return CheckResult(
+            name="gold.fact_peer_relative.percentile_bounds",
+            severity="critical", status="fail",
+            details={}, message="gold/fact_peer_relative not found",
+        )
+    row = con.execute(f"""
+        SELECT COUNT(*)
+        FROM {_gold_scan(con, bucket, 'fact_peer_relative/*.parquet')}
+        WHERE (sector_percentile IS NOT NULL AND (sector_percentile < 0 OR sector_percentile > 1))
+           OR (industry_percentile IS NOT NULL AND (industry_percentile < 0 OR industry_percentile > 1))
+    """).fetchone()
+    bad = row[0] or 0
+    return CheckResult(
+        name="gold.fact_peer_relative.percentile_bounds",
+        severity="critical",
+        status="pass" if bad == 0 else "fail",
+        details={"out_of_bounds_rows": bad},
+        message=f"{bad} percentile rows outside [0, 1]",
+    )
+
+
 def daily_suite(con, bucket: str) -> list[CheckResult]:
     """Checks run after the daily prices pipeline."""
     results = [
@@ -291,6 +392,10 @@ def daily_suite(con, bucket: str) -> list[CheckResult]:
         check_gold_table_has_rows(con, bucket,
                                    "fact_prices_enriched/**/*.parquet",
                                    "fact_prices_enriched"),
+        check_gold_table_has_rows(con, bucket,
+                                   "fact_valuation_daily/**/*.parquet",
+                                   "fact_valuation_daily"),
+        check_gold_valuation_daily_coverage(con, bucket),
     ]
     return results
 
@@ -318,6 +423,12 @@ def weekly_suite(con, bucket: str) -> list[CheckResult]:
         con, bucket, "fact_fundamentals_wide/*.parquet", "fact_fundamentals_wide"))
     results.append(check_gold_table_has_rows(
         con, bucket, "dim_company_enriched/*.parquet", "dim_company_enriched"))
+    results.append(check_gold_table_has_rows(
+        con, bucket, "fact_sector_aggregates/*.parquet", "fact_sector_aggregates"))
+    results.append(check_gold_table_has_rows(
+        con, bucket, "fact_peer_relative/*.parquet", "fact_peer_relative"))
+    results.append(check_gold_sector_aggregates_coverage(con, bucket))
+    results.append(check_gold_peer_relative_percentile_bounds(con, bucket))
     return results
 
 

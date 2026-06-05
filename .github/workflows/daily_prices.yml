@@ -59,6 +59,17 @@ jobs:
         R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
       run: python -m transform_gold.build_prices_enriched
 
+    - name: Build Gold — fact_valuation_daily
+      env:
+        R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+        R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+      # Reads from gold/fact_prices_enriched and gold/fact_fundamentals_wide,
+      # so must run AFTER build_prices_enriched. fundamentals_wide is rebuilt
+      # weekly; the daily run picks up whichever snapshot is current.
+      run: python -m transform_gold.build_valuation_daily
+
     - name: Data Quality Checks (daily suite)
       env:
         R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}

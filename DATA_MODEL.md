@@ -299,7 +299,7 @@ Deduplication key: `(symbol, effective_date)`
 
 ---
 
-## Gold Layer (Phase A)
+## Gold Layer (Phase A + B)
 
 Gold tables are purpose-built for analysis. They hold derived metrics,
 pre-joined wide tables, and pre-aggregated cohort statistics. They are
@@ -316,8 +316,16 @@ gold/
 │   ├── year=2005/fact_prices_enriched.parquet
 │   ├── ...
 │   └── year=2026/fact_prices_enriched.parquet
-└── dim_company_enriched/
-    └── dim_company_enriched.parquet
+├── dim_company_enriched/
+│   └── dim_company_enriched.parquet
+├── fact_valuation_daily/                       # Phase B
+│   ├── year=2000/fact_valuation_daily.parquet
+│   ├── ...
+│   └── year=2026/fact_valuation_daily.parquet
+├── fact_sector_aggregates/                     # Phase B
+│   └── fact_sector_aggregates.parquet
+└── fact_peer_relative/                         # Phase B
+    └── fact_peer_relative.parquet
 ```
 
 ### `fact_fundamentals_wide`
@@ -405,6 +413,96 @@ Notes:
   True total return is a Phase B addition.
 
 Cadence: weekly (after `build_fundamentals_wide`).
+
+---
+
+### `fact_valuation_daily` (Phase B)
+
+One row per `(symbol, trade_date)`. Daily-cadence valuation snapshot.
+Year-partitioned, full rebuild per run.
+
+| Group | Columns |
+|---|---|
+| Identifiers | symbol, trade_date |
+| Spot | close, adjusted_close, sector, industry, shares_outstanding |
+| As-of fundamentals | fundamentals_as_of (the source `fiscal_date_ending`), fundamentals_effective_date (when those numbers became public — `COALESCE(report_date, fiscal_date_ending + 60d)`), reported_eps_ttm |
+| **Market cap / EV** | market_cap (= close × shares_outstanding), enterprise_value (= market_cap + long_term_debt + short_term_debt − cash_and_equivalents − short_term_investments) |
+| **Ratios** | pe_ttm, ps_ttm, pb, ev_ebitda_ttm, fcf_yield_ttm, dividend_yield_ttm |
+| **Growth** | eps_cagr_5y, eps_cagr_3y (propagated from fact_fundamentals_wide) |
+| **Elfenbein fair-PE heuristic** | elfenbein_fair_pe (= eps_cagr_5y_pct/2 + 8), elfenbein_fair_pe_3y, elfenbein_fair_price (= fair_pe × reported_eps_ttm), elfenbein_fair_price_3y, elfenbein_upside_pct, elfenbein_margin_of_safety_met (BOOLEAN, true when close ≤ 0.7 × fair_price) |
+| Metadata | gold_built_utc |
+
+Notes:
+- **As-of join** to fundamentals via DuckDB `ASOF JOIN` keyed on
+  `trade_date >= effective_date`. Prevents look-ahead bias: a daily row
+  dated 2024-03-15 only sees fundamentals publicly reported on or before
+  that day.
+- `market_cap` uses the **current** `shares_outstanding` snapshot from
+  `dim_company` (not point-in-time historical shares). Same compromise as
+  `dim_company_enriched.market_cap_latest`. Point-in-time shares is a
+  Phase C upgrade.
+- `dividend_yield_ttm` is the firm-level cash yield
+  (dividend_payout_ttm / market_cap), not the per-share dividend yield.
+- Elfenbein formula: `fair_pe = growth_pct/2 + 8`. Null when 5y/3y EPS
+  CAGR is null or negative (formula breaks for declining EPS). `fair_price`
+  is also null when `reported_eps_ttm` ≤ 0.
+- Ratios use raw `close`, not `adjusted_close` — these are point-in-time
+  valuation metrics, not return calculations.
+
+Cadence: daily (after `build_prices_enriched`). Also rebuilt in the weekly
+workflow so the snapshot reflects fresh fundamentals immediately.
+
+### `fact_sector_aggregates` (Phase B)
+
+Long-format aggregate snapshot. One row per
+`(as_of_date, grouping_level, group_value, metric)`. Single snapshot per
+rebuild (= latest `trade_date` in `fact_valuation_daily`).
+
+| Column | Type | Notes |
+|---|---|---|
+| as_of_date | DATE | Snapshot date |
+| grouping_level | VARCHAR | `'sector'` or `'industry'` |
+| group_value | VARCHAR | The sector or industry name |
+| metric | VARCHAR | See metric list below |
+| n | BIGINT | Group size (number of symbols with a non-null value) |
+| mean | DOUBLE | |
+| median | DOUBLE | |
+| p25 | DOUBLE | |
+| p75 | DOUBLE | |
+| gold_built_utc | VARCHAR | |
+
+Metrics aggregated:
+- Valuation (from `fact_valuation_daily`): pe_ttm, ps_ttm, pb,
+  ev_ebitda_ttm, fcf_yield_ttm, dividend_yield_ttm
+- Fundamentals (latest quarterly row from `fact_fundamentals_wide`):
+  revenue_growth_yoy, eps_growth_yoy, gross_margin, operating_margin,
+  net_margin, roe, roic
+
+Cadence: weekly (after `build_fundamentals_wide`).
+
+### `fact_peer_relative` (Phase B)
+
+Per-symbol percentile rank and z-score within sector and industry, for
+each metric. Single snapshot per rebuild matching the as-of date in
+`fact_sector_aggregates`.
+
+| Column | Type | Notes |
+|---|---|---|
+| as_of_date | DATE | |
+| symbol | VARCHAR | |
+| metric | VARCHAR | Same metric list as `fact_sector_aggregates` |
+| value | DOUBLE | The symbol's raw metric value |
+| sector | VARCHAR | From dim_company |
+| industry | VARCHAR | From dim_company |
+| sector_percentile | DOUBLE | `PERCENT_RANK()` within sector partition, range [0, 1] |
+| industry_percentile | DOUBLE | `PERCENT_RANK()` within industry partition, range [0, 1] |
+| sector_zscore | DOUBLE | `(value − sector_mean) / sector_stddev`, null when stddev = 0 |
+| industry_zscore | DOUBLE | Same, within industry |
+| sector_n | BIGINT | Sector group size — filter to `n ≥ 3` for meaningful medians |
+| industry_n | BIGINT | Industry group size — currently mostly 1 at 107-ticker scale; expands meaningfully past 500 tickers |
+| gold_built_utc | VARCHAR | |
+
+Cadence: weekly (after `build_sector_aggregates`).
 
 ---
 
