@@ -201,9 +201,16 @@ def main():
     df["trade_date"] = pd.to_datetime(df["trade_date"])
 
     logger.info("Computing per-ticker technical signals...")
-    df = (df.groupby("symbol", group_keys=False, sort=False)
-            .apply(enrich_group)
-            .reset_index(drop=True))
+    # Manual loop instead of groupby().apply() — in pandas 2.2+ the default
+    # `include_groups=False` means the grouping column ('symbol') is excluded
+    # from each per-group slice, which broke add_relative_strength downstream
+    # (KeyError on df['symbol']). The loop is explicit, readable, and version-safe.
+    enriched_parts = []
+    for symbol, g in df.groupby("symbol", sort=False):
+        g_out = enrich_group(g.copy())
+        g_out["symbol"] = symbol  # explicit, in case any operation dropped it
+        enriched_parts.append(g_out)
+    df = pd.concat(enriched_parts, ignore_index=True)
 
     logger.info("Computing relative strength vs SPY...")
     df = add_relative_strength(df)
