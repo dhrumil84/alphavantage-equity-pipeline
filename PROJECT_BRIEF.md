@@ -10,6 +10,8 @@ statement data across a broad universe of US-listed equities.
 
 This is also a learning exercise in modern data engineering practices and agentic development.
 
+> **Architecture docs:** see [docs/architecture/](docs/architecture/) for diagrams (overview, data model, pipeline DAG, data quality) and [ADRs](docs/architecture/decisions/) for the reasoning behind non-obvious choices.
+
 ---
 
 ## Tech Stack (All Decisions Are Final — Do Not Substitute)
