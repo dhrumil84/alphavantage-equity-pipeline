@@ -55,48 +55,7 @@ OUT_PREFIX = "gold/fact_valuation_daily"
 
 
 SQL = """
-WITH prices AS (
-    SELECT symbol, trade_date, close, adjusted_close
-    FROM {prices}
-    QUALIFY ROW_NUMBER() OVER (
-        PARTITION BY symbol, trade_date ORDER BY gold_built_utc DESC NULLS LAST
-    ) = 1
-),
-funda_q AS (
-    -- Quarterly fundamentals — one row per (symbol, fiscal_date_ending),
-    -- with a synthetic effective_date = COALESCE(report_date, fiscal+60d).
-    -- The +60d fallback approximates a typical reporting lag when the
-    -- earnings endpoint didn't return report_date.
-    SELECT
-        symbol,
-        fiscal_date_ending,
-        COALESCE(report_date, fiscal_date_ending + INTERVAL '60 days') AS effective_date,
-        reported_eps_ttm,
-        total_revenue_ttm,
-        ebitda_ttm,
-        free_cash_flow_ttm,
-        dividend_payout_ttm,
-        total_equity,
-        long_term_debt,
-        short_term_debt,
-        cash_and_equivalents,
-        short_term_investments,
-        eps_cagr_5y,
-        eps_cagr_3y
-    FROM {fundwide}
-    WHERE period_type = 'quarterly'
-    QUALIFY ROW_NUMBER() OVER (
-        PARTITION BY symbol, fiscal_date_ending ORDER BY gold_built_utc DESC NULLS LAST
-    ) = 1
-),
-dim AS (
-    SELECT symbol, sector, industry, shares_outstanding
-    FROM {dim}
-    QUALIFY ROW_NUMBER() OVER (
-        PARTITION BY symbol ORDER BY last_updated DESC NULLS LAST
-    ) = 1
-),
-joined AS (
+WITH joined AS (
     SELECT
         p.symbol,
         p.trade_date,
@@ -124,6 +83,7 @@ joined AS (
     ASOF LEFT JOIN funda_q f
       ON p.symbol = f.symbol
      AND p.trade_date >= f.effective_date
+    WHERE EXTRACT(YEAR FROM p.trade_date) = {year}
 ),
 derived AS (
     SELECT
@@ -246,29 +206,115 @@ def main():
     bucket = os.environ["R2_BUCKET_NAME"]
     con = duckdb_to_r2()
 
-    sql = SQL.format(
-        prices=gold_scan(bucket, "fact_prices_enriched/**/*.parquet"),
-        fundwide=gold_scan(bucket, "fact_fundamentals_wide/*.parquet"),
-        dim=silver_scan(bucket, "dim_company/*.parquet"),
-    )
+    # The ASOF JOIN below explodes in memory at full-universe scale (~3M price
+    # rows × per-row lookup into ~100K wide fundamentals rows). Cap the
+    # in-memory working set and let DuckDB spill to local disk.
+    tmp_dir = Path("tmp_duckdb").resolve()
+    tmp_dir.mkdir(exist_ok=True)
+    con.execute("SET memory_limit = '6GB'")
+    con.execute(f"SET temp_directory = '{tmp_dir.as_posix()}'")
+    con.execute("SET preserve_insertion_order = false")
 
-    logger.info("Running join + valuation SQL in DuckDB...")
-    df = con.execute(sql).df()
+    # Materialize the three inputs as local DuckDB tables before the heavy ASOF
+    # JOIN. Reading them once up-front avoids DuckDB issuing many small ranged
+    # GETs against R2 during the join, which was making the join effectively
+    # never finish when run live against httpfs.
+    logger.info("Materializing prices into local DuckDB table...")
+    con.execute(f"""
+        CREATE TEMP TABLE prices_raw AS
+        SELECT symbol, trade_date, close, adjusted_close, gold_built_utc
+        FROM {gold_scan(bucket, "fact_prices_enriched/**/*.parquet")}
+    """)
+    con.execute("""
+        CREATE TEMP TABLE prices AS
+        SELECT symbol, trade_date, close, adjusted_close
+        FROM prices_raw
+        QUALIFY ROW_NUMBER() OVER (
+            PARTITION BY symbol, trade_date ORDER BY gold_built_utc DESC NULLS LAST
+        ) = 1
+    """)
     logger.info(
-        f"Built {len(df):,} rows across {df['symbol'].nunique()} symbols, "
-        f"date range {df['trade_date'].min()} → {df['trade_date'].max()}"
+        f"  prices: {con.execute('SELECT COUNT(*) FROM prices').fetchone()[0]:,} rows"
     )
 
-    pe_coverage = df["pe_ttm"].notna().sum()
-    elf_coverage = df["elfenbein_fair_price"].notna().sum()
+    logger.info("Materializing fundamentals_wide into local DuckDB table...")
+    con.execute(f"""
+        CREATE TEMP TABLE funda_q AS
+        SELECT
+            symbol,
+            fiscal_date_ending,
+            COALESCE(report_date, fiscal_date_ending + INTERVAL '60 days') AS effective_date,
+            reported_eps_ttm,
+            total_revenue_ttm,
+            ebitda_ttm,
+            free_cash_flow_ttm,
+            dividend_payout_ttm,
+            total_equity,
+            long_term_debt,
+            short_term_debt,
+            cash_and_equivalents,
+            short_term_investments,
+            eps_cagr_5y,
+            eps_cagr_3y
+        FROM {gold_scan(bucket, "fact_fundamentals_wide/*.parquet")}
+        WHERE period_type = 'quarterly'
+        QUALIFY ROW_NUMBER() OVER (
+            PARTITION BY symbol, fiscal_date_ending
+            ORDER BY gold_built_utc DESC NULLS LAST
+        ) = 1
+    """)
     logger.info(
-        f"PE_TTM populated on {pe_coverage:,} rows; "
-        f"Elfenbein fair_price on {elf_coverage:,} rows"
+        f"  funda_q: {con.execute('SELECT COUNT(*) FROM funda_q').fetchone()[0]:,} rows"
     )
 
-    df["gold_built_utc"] = datetime.now(timezone.utc).isoformat()
+    logger.info("Materializing dim_company into local DuckDB table...")
+    con.execute(f"""
+        CREATE TEMP TABLE dim AS
+        SELECT symbol, sector, industry, shares_outstanding
+        FROM {silver_scan(bucket, "dim_company/*.parquet")}
+        QUALIFY ROW_NUMBER() OVER (
+            PARTITION BY symbol ORDER BY last_updated DESC NULLS LAST
+        ) = 1
+    """)
+    logger.info(
+        f"  dim: {con.execute('SELECT COUNT(*) FROM dim').fetchone()[0]:,} rows"
+    )
 
-    write_by_year(df)
+    # Run the ASOF join one year at a time. A single full-universe pass OOMs;
+    # per-year passes have a small enough working set to complete in seconds.
+    years = [r[0] for r in con.execute(
+        "SELECT DISTINCT EXTRACT(YEAR FROM trade_date)::INT AS y "
+        "FROM prices ORDER BY y"
+    ).fetchall()]
+    logger.info(f"Will process {len(years)} years: {years[0]}..{years[-1]}")
+
+    built_utc = datetime.now(timezone.utc).isoformat()
+    total_rows = 0
+    total_pe = 0
+    total_elf = 0
+    for year in years:
+        logger.info(f"[year={year}] Running join + valuation SQL...")
+        df = con.execute(SQL.format(year=year)).df()
+        if df.empty:
+            logger.info(f"[year={year}] no rows, skipping")
+            continue
+        df["gold_built_utc"] = built_utc
+        pe_coverage = df["pe_ttm"].notna().sum()
+        elf_coverage = df["elfenbein_fair_price"].notna().sum()
+        total_rows += len(df)
+        total_pe += pe_coverage
+        total_elf += elf_coverage
+        logger.info(
+            f"[year={year}] {len(df):,} rows, {df['symbol'].nunique()} symbols, "
+            f"pe_ttm={pe_coverage:,} elfenbein={elf_coverage:,}"
+        )
+        write_by_year(df)
+        del df
+
+    logger.info(
+        f"Total: {total_rows:,} rows; PE_TTM populated on {total_pe:,}; "
+        f"Elfenbein fair_price on {total_elf:,}"
+    )
 
 
 if __name__ == "__main__":
