@@ -1,5 +1,6 @@
 import os
 import io
+import sys
 import csv
 import logging
 import pandas as pd
@@ -67,22 +68,27 @@ def main():
         logger.error(f"Failed to find listing status files: {e}")
         return
 
-    # Ingest active and delisted listing status files
+    # ingest_listing_status writes a single combined CSV (active + delisted) per pull date.
+    # Fall back to the older split _active.csv / _delisted.csv layout for backfilled dates.
+    combined_key = f"bronze/listing_status/{latest_ls_date}.csv"
     listings = []
-    for state in ["active", "delisted"]:
-        key = f"bronze/listing_status/{latest_ls_date}_{state}.csv"
-        if r2_client.key_exists(key):
-            logger.info(f"Downloading listing status '{key}'...")
-            csv_bytes = r2_client.download_bytes(key)
-            df_state = pd.read_csv(io.BytesIO(csv_bytes))
-            # Standardize columns to match CSV headers: symbol,name,exchange,assetType,ipoDate,delistingDate,status
-            listings.append(df_state)
-        else:
-            logger.warning(f"Listing status file '{key}' does not exist.")
+    if r2_client.key_exists(combined_key):
+        logger.info(f"Downloading combined listing status '{combined_key}'...")
+        csv_bytes = r2_client.download_bytes(combined_key)
+        listings.append(pd.read_csv(io.BytesIO(csv_bytes)))
+    else:
+        for state in ["active", "delisted"]:
+            key = f"bronze/listing_status/{latest_ls_date}_{state}.csv"
+            if r2_client.key_exists(key):
+                logger.info(f"Downloading listing status '{key}'...")
+                csv_bytes = r2_client.download_bytes(key)
+                listings.append(pd.read_csv(io.BytesIO(csv_bytes)))
+            else:
+                logger.warning(f"Listing status file '{key}' does not exist.")
 
     if not listings:
         logger.error("No listing status files could be loaded. Exiting.")
-        return
+        sys.exit(1)
 
     combined_listings = pd.concat(listings, ignore_index=True)
     logger.info(f"Loaded {len(combined_listings)} total listings.")
