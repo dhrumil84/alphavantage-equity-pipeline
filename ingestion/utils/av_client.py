@@ -79,7 +79,7 @@ def fetch(params: dict) -> dict:
     logger.info(log_msg)
 
     _record_call(function_name)
-    response = requests.get(BASE_URL, params=req_params, verify=False)
+    response = requests.get(BASE_URL, params=req_params)
 
     # Check for HTTP-level errors
     try:
@@ -147,7 +147,7 @@ def fetch_csv(params: dict) -> bytes:
     logger.info(log_msg)
 
     _record_call(function_name)
-    response = requests.get(BASE_URL, params=req_params, verify=False)
+    response = requests.get(BASE_URL, params=req_params)
 
     try:
         response.raise_for_status()
