@@ -34,7 +34,7 @@ def _get_client():
             aws_secret_access_key=secret_access_key,
             region_name="auto",
             use_ssl=True,
-            verify=False
+            verify=certifi.where()
         )
     return _S3_CLIENT
 
