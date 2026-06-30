@@ -1,0 +1,8 @@
+symbol,name,category,active
+DJI,Dow Jones Industrial Average,headline,true
+SPX,S&P 500 Index,headline,true
+COMP,NASDAQ Composite Index,headline,true
+NDX,NASDAQ-100 Index,headline,true
+VIX,CBOE Volatility Index,volatility,true
+RUT,Russell 2000 Index,headline,true
+OEX,S&P 100 Index,headline,true
