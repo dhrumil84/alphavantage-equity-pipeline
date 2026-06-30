@@ -1,0 +1,61 @@
+name: Earnings Transcripts Backfill (manual)
+
+# One-time backfill of EARNINGS_CALL_TRANSCRIPT history. No cron — manual
+# dispatch only. The ingest script is idempotent (skips any (symbol, quarter)
+# bronze file that already exists), so this workflow can be re-run as many
+# times as needed to grind through the universe. Each run is bounded by the
+# GitHub-hosted-runner 6-hour per-job timeout (~27K calls at 75/min); the
+# full universe at 10y depth is ~60K calls, so plan on 2–3 runs to complete.
+#
+# After bronze is populated, the regular weekly_refresh.yml job will pick up
+# the transforms — no separate transform run needed here.
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_quarter:
+        description: 'Backfill from this quarter through current. YYYYQN format.'
+        required: true
+        default: '2016Q1'
+        type: string
+
+jobs:
+  run-backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350  # 5h50m — under GH's 6h hard limit to leave room for setup/teardown
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Ingest Earnings Transcripts (backfill)
+      env:
+        ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
+        R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+        R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+      run: |
+        python -m ingestion.ingest_earnings_transcripts \
+          --mode backfill \
+          --start-quarter "${{ github.event.inputs.start_quarter }}"
+
+    - name: Storage Snapshot
+      if: always()
+      env:
+        R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+        R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+      run: python -m observability.storage_scan
