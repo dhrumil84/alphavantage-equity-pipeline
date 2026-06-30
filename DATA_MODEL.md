@@ -299,6 +299,216 @@ Deduplication key: `(symbol, effective_date)`
 
 ---
 
+## Silver Layer — Extensions (News, Transcripts, Insider, Institutional, ETF, Indices)
+
+These tables ingest the Alpha Intelligence + ETF + Index endpoints added on top of
+the original core. Same silver rules apply: nulls are nulls, dates are dates, no
+derived metrics (derived columns live in gold).
+
+### `fact_news_articles`
+
+One row per unique news article. Bronze sourced from both per-topic and per-ticker
+NEWS_SENTIMENT calls; dedup on URL.
+
+| Column | Type | Notes |
+|---|---|---|
+| url | VARCHAR | Primary key |
+| title | VARCHAR | |
+| time_published | TIMESTAMP | Parsed from `YYYYMMDDTHHMM[SS]` |
+| authors | VARCHAR | JSON-encoded list |
+| summary | VARCHAR | |
+| source | VARCHAR | |
+| source_domain | VARCHAR | |
+| category_within_source | VARCHAR | |
+| overall_sentiment_score | DOUBLE | -1.0 to +1.0 |
+| overall_sentiment_label | VARCHAR | Bearish / Somewhat-Bearish / Neutral / Somewhat-Bullish / Bullish |
+| topics | VARCHAR | JSON-encoded list of `{topic, relevance_score}` |
+| banner_image | VARCHAR | |
+| pull_date | DATE | |
+
+Deduplication key: `url`
+
+### `fact_news_ticker_sentiment`
+
+Exploded one row per `(article, ticker)`. An article that mentions 4 tickers
+produces 4 rows here.
+
+| Column | Type | Notes |
+|---|---|---|
+| url | VARCHAR | FK to `fact_news_articles.url` |
+| ticker | VARCHAR | |
+| relevance_score | DOUBLE | 0.0 to 1.0 |
+| ticker_sentiment_score | DOUBLE | -1.0 to +1.0 |
+| ticker_sentiment_label | VARCHAR | Bearish / Somewhat-Bearish / Neutral / Somewhat-Bullish / Bullish |
+| pull_date | DATE | |
+
+Deduplication key: `(url, ticker)`
+
+---
+
+### `dim_earnings_calls`
+
+One row per `(symbol, quarter)`. `call_date` enriched from `fact_earnings.report_date`.
+
+| Column | Type | Notes |
+|---|---|---|
+| symbol | VARCHAR | |
+| quarter | VARCHAR | `YYYYQN`, e.g. `2024Q1` |
+| call_date | DATE | Nullable; sourced from `fact_earnings.report_date` |
+| participant_count | INT | Distinct speakers in the transcript |
+| pull_date | DATE | |
+
+Deduplication key: `(symbol, quarter)`
+
+### `fact_transcript_turns`
+
+One row per speaker turn in a transcript. AV provides per-turn sentiment.
+
+| Column | Type | Notes |
+|---|---|---|
+| symbol | VARCHAR | |
+| quarter | VARCHAR | |
+| turn_idx | INT | 0-based position in the transcript array |
+| speaker | VARCHAR | |
+| title | VARCHAR | Role/title (e.g. "CEO", "Analyst — Morgan Stanley") |
+| content | VARCHAR | Full text of the turn |
+| sentiment | DOUBLE | Per-turn sentiment provided by AV |
+| pull_date | DATE | |
+
+Deduplication key: `(symbol, quarter, turn_idx)`
+
+---
+
+### `fact_insider_transactions`
+
+One row per insider Form 4 transaction. No single PK — Form 4 can have multiple
+identical-looking lines for the same exec on the same day; composite key.
+
+| Column | Type | Notes |
+|---|---|---|
+| symbol | VARCHAR | |
+| transaction_date | DATE | |
+| executive | VARCHAR | |
+| executive_title | VARCHAR | |
+| security_type | VARCHAR | e.g. "Common Stock" |
+| acquisition_or_disposal | VARCHAR | `A` or `D` |
+| shares | DOUBLE | |
+| share_price | DOUBLE | Can be 0.0 (e.g. RSU vests, gifts) |
+| pull_date | DATE | |
+
+Deduplication key: `(symbol, transaction_date, executive, shares, share_price, acquisition_or_disposal)`
+
+---
+
+### `dim_institutional_summary`
+
+Snapshot of institutional ownership aggregates per pull.
+
+| Column | Type | Notes |
+|---|---|---|
+| symbol | VARCHAR | |
+| total_institutional_holders | INT | |
+| total_institutional_shares | DOUBLE | |
+| holders_with_increased_holdings | INT | |
+| shares_with_increased_holdings | DOUBLE | |
+| holders_with_decreased_holdings | INT | |
+| shares_with_decreased_holdings | DOUBLE | |
+| holders_with_unchanged_holdings | INT | |
+| shares_with_unchanged_holdings | DOUBLE | |
+| total_institutional_ownership_percentage | DOUBLE | |
+| pull_date | DATE | |
+
+Deduplication key: `(symbol, pull_date)`
+
+### `fact_institutional_holdings`
+
+Per-holder rows from the `holdings[]` array. Schema is defensive — populated from
+whichever fields are present in the API payload.
+
+| Column | Type | Notes |
+|---|---|---|
+| symbol | VARCHAR | |
+| holder_name | VARCHAR | |
+| shares_held | DOUBLE | |
+| shares_change | DOUBLE | |
+| pct_of_portfolio | DOUBLE | |
+| market_value | DOUBLE | |
+| report_date | DATE | Quarter end of the 13F filing |
+| pull_date | DATE | |
+
+Deduplication key: `(symbol, holder_name, pull_date)`
+
+---
+
+### `dim_etf_profile`
+
+ETF-level metadata (one row per ETF, latest snapshot).
+
+| Column | Type | Notes |
+|---|---|---|
+| symbol | VARCHAR | |
+| net_assets | DOUBLE | AUM |
+| net_expense_ratio | DOUBLE | |
+| portfolio_turnover | DOUBLE | |
+| dividend_yield | DOUBLE | |
+| inception_date | DATE | |
+| leveraged | VARCHAR | `YES` / `NO` |
+| pull_date | DATE | |
+
+Deduplication key: `symbol`
+
+### `fact_etf_holdings`
+
+Constituent rows for each ETF snapshot.
+
+| Column | Type | Notes |
+|---|---|---|
+| etf_symbol | VARCHAR | |
+| holding_symbol | VARCHAR | |
+| description | VARCHAR | Long name of the constituent |
+| weight | DOUBLE | Portfolio weight (0..1) |
+| as_of_date | DATE | = pull_date (no explicit holdings-date in payload) |
+| pull_date | DATE | |
+
+Deduplication key: `(etf_symbol, holding_symbol, as_of_date)`
+
+### `fact_etf_sector_allocation`
+
+Sector allocation rows from the `sectors[]` array.
+
+| Column | Type | Notes |
+|---|---|---|
+| etf_symbol | VARCHAR | |
+| sector | VARCHAR | e.g. `INFORMATION TECHNOLOGY` |
+| weight | DOUBLE | |
+| as_of_date | DATE | |
+| pull_date | DATE | |
+
+Deduplication key: `(etf_symbol, sector, as_of_date)`
+
+---
+
+### `fact_index_prices`
+
+Daily OHLC for major market indices (DJI, SPX, COMP, NDX, VIX, RUT, OEX, ...).
+Year-partitioned, mirrors `fact_daily_prices` but with **no volume** column —
+indices don't report aggregate volume through INDEX_DATA.
+
+| Column | Type | Notes |
+|---|---|---|
+| index_symbol | VARCHAR | Distinct from `symbol` to avoid confusion with equities |
+| trade_date | DATE | |
+| open | DOUBLE | |
+| high | DOUBLE | |
+| low | DOUBLE | |
+| close | DOUBLE | |
+| pull_date | DATE | |
+
+Deduplication key: `(index_symbol, trade_date)`
+Partitioning: `year=YYYY/`
+
+---
+
 ## Gold Layer (Phase A + B)
 
 Gold tables are purpose-built for analysis. They hold derived metrics,
@@ -503,6 +713,91 @@ each metric. Single snapshot per rebuild matching the as-of date in
 | gold_built_utc | VARCHAR | |
 
 Cadence: weekly (after `build_sector_aggregates`).
+
+---
+
+## Gold Layer — Extensions (Sentiment, Insider, Institutional, Indices)
+
+### `fact_sentiment_daily`
+
+One row per `(symbol, sentiment_date)` summarizing ticker-level news sentiment
+attached to articles published that calendar day. Joinable to
+`fact_valuation_daily` on `(symbol, trade_date = sentiment_date)`.
+
+| Column | Type | Notes |
+|---|---|---|
+| symbol | VARCHAR | |
+| sentiment_date | DATE | UTC calendar date of `time_published` |
+| article_count | INT | |
+| avg_sentiment_score | DOUBLE | Simple average across articles |
+| weighted_avg_sentiment | DOUBLE | Weighted by per-article `relevance_score` |
+| bullish_count | INT | `ticker_sentiment_label IN ('Bullish','Somewhat-Bullish')` |
+| bearish_count | INT | `ticker_sentiment_label IN ('Bearish','Somewhat-Bearish')` |
+| gold_built_utc | VARCHAR | |
+
+Partitioning: `year=YYYY/`. Cadence: daily.
+
+### `fact_insider_signals`
+
+One row per `(symbol, as_of_date)` for the trailing 5 years. Rolling 30/90/180-day
+net insider buying signals, joinable to valuation/price tables.
+
+| Column | Type | Notes |
+|---|---|---|
+| symbol | VARCHAR | |
+| as_of_date | DATE | Calendar date |
+| net_insider_shares_30d | DOUBLE | Σ (A − D) shares within trailing 30d |
+| net_insider_shares_90d | DOUBLE | trailing 90d |
+| net_insider_shares_180d | DOUBLE | trailing 180d |
+| net_insider_usd_30d | DOUBLE | Σ signed (shares × share_price) |
+| net_insider_usd_90d | DOUBLE | |
+| net_insider_usd_180d | DOUBLE | |
+| distinct_buyers_180d | INT | |
+| distinct_sellers_180d | INT | |
+| cluster_buy_flag_30d | BOOLEAN | True when ≥3 distinct executives bought in trailing 30d |
+| gold_built_utc | VARCHAR | |
+
+Cadence: weekly.
+
+### `fact_institutional_concentration`
+
+One row per `(symbol, pull_date)`. Ownership concentration plus snapshot-over-snapshot
+deltas (lag based on prior pull within ticker).
+
+| Column | Type | Notes |
+|---|---|---|
+| symbol | VARCHAR | |
+| pull_date | DATE | |
+| total_institutional_shares | DOUBLE | Joined from `dim_institutional_summary` |
+| top10_pct_owned | DOUBLE | Σ top-10 holders' shares / total_institutional_shares |
+| top25_pct_owned | DOUBLE | |
+| holder_count | INT | |
+| prev_holder_count | INT | Prior snapshot value (LAG) |
+| holder_count_delta | INT | Δ vs prior snapshot |
+| prev_total_shares | DOUBLE | |
+| total_shares_delta | DOUBLE | |
+| gold_built_utc | VARCHAR | |
+
+Cadence: weekly.
+
+### `fact_index_returns`
+
+Parallel to `fact_prices_enriched` but for indices. No volume-based metrics
+(indices don't carry volume). Useful as a true SPX benchmark instead of SPY,
+or to compute per-ticker beta vs each index.
+
+| Column | Type | Notes |
+|---|---|---|
+| index_symbol | VARCHAR | |
+| trade_date | DATE | |
+| open / high / low / close | DOUBLE | Raw OHLC from silver |
+| return_1d / 5d / 21d / 63d / 126d / 252d | DOUBLE | From close |
+| volatility_30d / 90d | DOUBLE | Annualized stdev of daily returns |
+| high_252d / low_252d | DOUBLE | Rolling 252-day extrema |
+| pct_off_252d_high | DOUBLE | Distance from 1-year high |
+| gold_built_utc | VARCHAR | |
+
+Partitioning: `year=YYYY/`. Cadence: daily.
 
 ---
 

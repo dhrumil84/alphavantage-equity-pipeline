@@ -39,6 +39,12 @@ jobs:
         python -m ingestion.ingest_overview
         python -m ingestion.ingest_fundamentals
         python -m ingestion.ingest_corporate_actions
+        python -m ingestion.ingest_index_catalog
+        python -m ingestion.ingest_news_tickers
+        python -m ingestion.ingest_earnings_transcripts --mode forward
+        python -m ingestion.ingest_insider_transactions
+        python -m ingestion.ingest_institutional_holdings
+        python -m ingestion.ingest_etf_profile
 
     - name: Run Transformations
       env:
@@ -50,6 +56,10 @@ jobs:
         python -m transform.transform_overview
         python -m transform.transform_fundamentals
         python -m transform.transform_corporate_actions
+        python -m transform.transform_earnings_transcripts
+        python -m transform.transform_insider_transactions
+        python -m transform.transform_institutional_holdings
+        python -m transform.transform_etf_profile
 
     - name: Build Gold (weekly tables)
       env:
@@ -65,12 +75,16 @@ jobs:
       #   - build_sector_aggregates reads fact_valuation_daily +
       #     fact_fundamentals_wide; build_peer_relative reads both plus
       #     fact_sector_aggregates (transitively via shared schema).
+      #   - build_insider_signals reads silver/fact_insider_transactions
+      #   - build_institutional_concentration reads silver/fact_institutional_*
       run: |
         python -m transform_gold.build_fundamentals_wide
         python -m transform_gold.build_dim_company_enriched
         python -m transform_gold.build_valuation_daily
         python -m transform_gold.build_sector_aggregates
         python -m transform_gold.build_peer_relative
+        python -m transform_gold.build_insider_signals
+        python -m transform_gold.build_institutional_concentration
 
     - name: Data Quality Checks (weekly suite)
       env:

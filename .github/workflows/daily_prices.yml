@@ -43,6 +43,24 @@ jobs:
         R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
       run: python -m ingestion.ingest_daily_prices --mode ${{ github.event.inputs.mode || 'incremental' }}
 
+    - name: Ingest Index Data
+      env:
+        ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
+        R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+        R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+      run: python -m ingestion.ingest_index_data --mode ${{ github.event.inputs.mode || 'incremental' }}
+
+    - name: Ingest News (topic feeds)
+      env:
+        ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
+        R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+        R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+      run: python -m ingestion.ingest_news_topics
+
     - name: Transform Daily Prices
       env:
         R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
@@ -50,6 +68,24 @@ jobs:
         R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
       run: python -m transform.transform_daily_prices
+
+    - name: Transform Index Data
+      env:
+        R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+        R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+      run: python -m transform.transform_index_data
+
+    - name: Transform News Sentiment
+      env:
+        R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+        R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+      # Reads both topic (daily) and ticker (weekly) news bronze paths;
+      # safely runs daily even though ticker feed only refreshes weekly.
+      run: python -m transform.transform_news_sentiment
 
     - name: Build Gold — fact_prices_enriched
       env:
@@ -69,6 +105,22 @@ jobs:
       # so must run AFTER build_prices_enriched. fundamentals_wide is rebuilt
       # weekly; the daily run picks up whichever snapshot is current.
       run: python -m transform_gold.build_valuation_daily
+
+    - name: Build Gold — fact_index_returns
+      env:
+        R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+        R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+      run: python -m transform_gold.build_index_returns
+
+    - name: Build Gold — fact_sentiment_daily
+      env:
+        R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+        R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+      run: python -m transform_gold.build_news_sentiment_daily
 
     - name: Data Quality Checks (daily suite)
       env:
