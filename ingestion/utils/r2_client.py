@@ -2,12 +2,23 @@ import os
 import json
 import boto3
 import certifi
+from botocore.config import Config
 from botocore.exceptions import ClientError
 from typing import List, Dict, Any
 from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+
+# Bound the time we'll spend on any one R2 call. Defaults (60s/60s, no max
+# retries) let a stalled TCP connection wedge the ingest loop for ~minutes
+# per call. Standard-mode retries cover throttling and transient 5xx with
+# botocore's own exponential backoff.
+_R2_CONFIG = Config(
+    connect_timeout=5,
+    read_timeout=30,
+    retries={"max_attempts": 5, "mode": "standard"},
+)
 
 _S3_CLIENT = None
 
@@ -18,15 +29,15 @@ def _get_client():
         account_id = os.environ.get("R2_ACCOUNT_ID")
         if not account_id:
             raise ValueError("R2_ACCOUNT_ID environment variable is missing.")
-        
+
         access_key_id = os.environ.get("R2_ACCESS_KEY_ID")
         secret_access_key = os.environ.get("R2_SECRET_ACCESS_KEY")
-        
+
         if not access_key_id or not secret_access_key:
             raise ValueError("R2 access keys are missing from environment variables.")
 
         endpoint_url = f"https://{account_id}.r2.cloudflarestorage.com"
-        
+
         _S3_CLIENT = boto3.client(
             "s3",
             endpoint_url=endpoint_url,
@@ -34,7 +45,8 @@ def _get_client():
             aws_secret_access_key=secret_access_key,
             region_name="auto",
             use_ssl=True,
-            verify=certifi.where()
+            verify=certifi.where(),
+            config=_R2_CONFIG,
         )
     return _S3_CLIENT
 

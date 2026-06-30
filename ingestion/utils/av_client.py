@@ -1,4 +1,6 @@
 import os
+import time
+import random
 import requests
 import logging
 from pathlib import Path
@@ -17,9 +19,19 @@ if not logger.handlers:
 
 BASE_URL = "https://www.alphavantage.co/query"
 
+# (connect, read) timeout in seconds. Read timeout is generous because some AV
+# endpoints (e.g. full TIME_SERIES_DAILY_ADJUSTED) can take 20s+ to stream.
+_HTTP_TIMEOUT = (5, 30)
+# Total attempts = 1 initial + 4 retries. With base 1.5s doubling, the worst-case
+# total backoff is ~22s of sleep across 5 attempts.
+_MAX_ATTEMPTS = 5
+_BACKOFF_BASE = 1.5
+
 # Lightweight in-process API call counter. Observability hooks read this at
 # process exit to record per-run API usage. Keyed by the `function` param
 # (e.g. 'OVERVIEW', 'TIME_SERIES_DAILY_ADJUSTED'). Errors are tracked separately.
+# Note: each retry attempt is counted as a separate call, since each one consumes
+# an AV rate-limit slot.
 _CALL_COUNTS: dict[str, int] = {}
 _ERROR_COUNTS: dict[str, int] = {}
 
@@ -46,6 +58,70 @@ class AlphaVantageHTTPError(Exception):
     """Exception raised for non-200 HTTP responses."""
     pass
 
+
+def _backoff_delay(attempt: int) -> float:
+    """Exponential backoff with jitter. `attempt` is 0-indexed."""
+    return _BACKOFF_BASE * (2 ** attempt) + random.uniform(0, 1)
+
+
+def _http_get_with_retry(req_params: dict, function_name: str) -> requests.Response:
+    """
+    GET BASE_URL with bounded timeout and exponential backoff on transient failures.
+
+    Retries on connection errors, read timeouts, and 5xx server responses.
+    Does NOT retry on 4xx — those are deterministic client errors that won't
+    resolve with another attempt.
+
+    Raises AlphaVantageHTTPError if all attempts are exhausted.
+    """
+    last_error: Exception | None = None
+    for attempt in range(_MAX_ATTEMPTS):
+        _record_call(function_name)
+        try:
+            response = requests.get(BASE_URL, params=req_params, timeout=_HTTP_TIMEOUT)
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+            _record_error(function_name)
+            last_error = e
+            if attempt + 1 < _MAX_ATTEMPTS:
+                delay = _backoff_delay(attempt)
+                logger.warning(
+                    f"Transient HTTP error on {function_name} "
+                    f"(attempt {attempt + 1}/{_MAX_ATTEMPTS}): "
+                    f"{type(e).__name__}: {e} — retrying in {delay:.1f}s"
+                )
+                time.sleep(delay)
+                continue
+            raise AlphaVantageHTTPError(
+                f"Request failed after {_MAX_ATTEMPTS} attempts: {e}"
+            ) from e
+        except requests.exceptions.RequestException as e:
+            _record_error(function_name)
+            raise AlphaVantageHTTPError(f"Request failed: {e}") from e
+
+        if 500 <= response.status_code < 600:
+            _record_error(function_name)
+            last_error = AlphaVantageHTTPError(
+                f"HTTP {response.status_code}: {response.text[:200]}"
+            )
+            if attempt + 1 < _MAX_ATTEMPTS:
+                delay = _backoff_delay(attempt)
+                logger.warning(
+                    f"Server error on {function_name} "
+                    f"(attempt {attempt + 1}/{_MAX_ATTEMPTS}): "
+                    f"HTTP {response.status_code} — retrying in {delay:.1f}s"
+                )
+                time.sleep(delay)
+                continue
+            raise last_error
+
+        return response
+
+    # Defensive — loop always returns or raises above.
+    raise AlphaVantageHTTPError(
+        f"Exhausted retries for {function_name}: {last_error}"
+    )
+
+
 def fetch(params: dict) -> dict:
     """
     Makes a GET request to the Alpha Vantage API.
@@ -59,7 +135,7 @@ def fetch(params: dict) -> dict:
 
     Raises:
         ValueError: If ALPHAVANTAGE_API_KEY is not set in the environment.
-        AlphaVantageHTTPError: If the HTTP request fails (non-200 status code).
+        AlphaVantageHTTPError: If the HTTP request fails (non-200 status code, or all retries exhausted).
         AlphaVantageError: If the API returns a 200 response containing an error message or rate limit info.
     """
     api_key = os.environ.get("ALPHAVANTAGE_API_KEY")
@@ -72,24 +148,20 @@ def fetch(params: dict) -> dict:
 
     function_name = req_params.get('function', 'UNKNOWN_FUNCTION')
     symbol = req_params.get('symbol')
-    
+
     log_msg = f"Calling Alpha Vantage: function={function_name}"
     if symbol:
         log_msg += f", symbol={symbol}"
     logger.info(log_msg)
 
-    _record_call(function_name)
-    response = requests.get(BASE_URL, params=req_params)
+    response = _http_get_with_retry(req_params, function_name)
 
-    # Check for HTTP-level errors
+    # 5xx is handled inside the retry helper; this catches 4xx.
     try:
         response.raise_for_status()
     except requests.exceptions.HTTPError as e:
         _record_error(function_name)
         raise AlphaVantageHTTPError(f"HTTP Error {response.status_code}: {response.text}") from e
-    except requests.exceptions.RequestException as e:
-        _record_error(function_name)
-        raise AlphaVantageHTTPError(f"Request failed: {e}") from e
 
     # Parse JSON
     try:
@@ -119,7 +191,7 @@ def fetch(params: dict) -> dict:
 def fetch_csv(params: dict) -> bytes:
     """
     Makes a GET request to the Alpha Vantage API for endpoints returning CSV data.
-    
+
     Args:
         params: Dictionary of query parameters. 'apikey' will be added automatically.
 
@@ -128,7 +200,7 @@ def fetch_csv(params: dict) -> bytes:
 
     Raises:
         ValueError: If ALPHAVANTAGE_API_KEY is not set.
-        AlphaVantageHTTPError: If the HTTP request fails.
+        AlphaVantageHTTPError: If the HTTP request fails (or all retries exhausted).
         AlphaVantageError: If the API returns a JSON error message instead of CSV.
     """
     api_key = os.environ.get("ALPHAVANTAGE_API_KEY")
@@ -140,26 +212,22 @@ def fetch_csv(params: dict) -> bytes:
 
     function_name = req_params.get('function', 'UNKNOWN_FUNCTION')
     symbol = req_params.get('symbol')
-    
+
     log_msg = f"Calling Alpha Vantage (CSV): function={function_name}"
     if symbol:
         log_msg += f", symbol={symbol}"
     logger.info(log_msg)
 
-    _record_call(function_name)
-    response = requests.get(BASE_URL, params=req_params)
+    response = _http_get_with_retry(req_params, function_name)
 
     try:
         response.raise_for_status()
     except requests.exceptions.HTTPError as e:
         _record_error(function_name)
         raise AlphaVantageHTTPError(f"HTTP Error {response.status_code}: {response.text}") from e
-    except requests.exceptions.RequestException as e:
-        _record_error(function_name)
-        raise AlphaVantageHTTPError(f"Request failed: {e}") from e
 
     content_type = response.headers.get("Content-Type", "")
-    
+
     # If returned as JSON, it's typically an error or rate limit hit.
     if "application/json" in content_type:
         _record_error(function_name)
