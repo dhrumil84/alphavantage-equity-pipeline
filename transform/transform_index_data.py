@@ -3,16 +3,16 @@ Build silver/fact_index_prices/year=YYYY/fact_index_prices.parquet
 
 Grain: (index_symbol, trade_date)  year-partitioned, mirrors fact_daily_prices.
 
-Bronze response shape is inferred (premium endpoint, demo key rejected). We
-defensively probe for time-series payload keys that contain 'Time Series' and
-field keys that match the standard AV OHLC pattern ('1. open', '2. high',
-'3. low', '4. close'). Volume is not present for indices.
+Bronze response shape (INDEX_DATA premium endpoint):
+    {"symbol": "...", "name": "...", "interval": "daily",
+     "data": [{"date": "YYYY-MM-DD", "open": "...", "high": "...",
+               "low": "...", "close": "..."}, ...]}
+No volume field — indices don't report it.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 from typing import List
 
 import pandas as pd
@@ -46,21 +46,6 @@ def _latest_files(prefix: str) -> List[str]:
     return [sorted(v)[-1][1] for v in by_symbol.values()]
 
 
-def _find_time_series(payload: dict) -> dict | None:
-    """Locate the time-series dict — its key name varies by interval."""
-    for k, v in payload.items():
-        if isinstance(v, dict) and "Time Series" in k:
-            return v
-    return None
-
-
-def _field(values: dict, *candidates: str) -> str | None:
-    for c in candidates:
-        if c in values:
-            return values[c]
-    return None
-
-
 def main() -> None:
     keys = _latest_files("bronze/index_data/")
     if not keys:
@@ -78,19 +63,19 @@ def main() -> None:
         symbol = data.get("symbol") or key.split("/")[2]
         pull_date = data.get("pull_date") or key.split("/")[-1].replace(".json", "")
 
-        ts = _find_time_series(data)
-        if not ts:
-            logger.warning(f"No time-series block in {key}")
+        records = data.get("data")
+        if not isinstance(records, list) or not records:
+            logger.warning(f"No 'data' list in {key} (top-level keys: {sorted(data.keys())})")
             continue
 
-        for trade_date_str, values in ts.items():
+        for item in records:
             rows.append({
                 "index_symbol": symbol,
-                "trade_date": trade_date_str,
-                "open": _safe_float(_field(values, "1. open", "open")),
-                "high": _safe_float(_field(values, "2. high", "high")),
-                "low": _safe_float(_field(values, "3. low", "low")),
-                "close": _safe_float(_field(values, "4. close", "close")),
+                "trade_date": item.get("date"),
+                "open": _safe_float(item.get("open")),
+                "high": _safe_float(item.get("high")),
+                "low": _safe_float(item.get("low")),
+                "close": _safe_float(item.get("close")),
                 "pull_date": pull_date,
             })
 
