@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import List, Dict, Tuple
 
 from ingestion.utils import av_client, r2_client
+from ingestion.utils.listing_status import load_eligible_stock_symbols
 from ingestion.utils.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
@@ -48,10 +49,29 @@ def main():
         return
 
     logger.info(f"Starting fundamentals ingestion for {total} active tickers.")
-    
+
+    # Skip symbols that AV's LISTING_STATUS does not classify as Active Stocks
+    # (ETFs, CEFs, delisted). Fundamentals endpoints return 'Invalid API call'
+    # for those, wasting rate-limit budget. Bronze data already written for
+    # delisted symbols remains in R2 and still flows through to silver/gold.
+    try:
+        eligible = load_eligible_stock_symbols()
+        skipped_ineligible = sum(1 for s in active_symbols if s not in eligible)
+        logger.info(
+            f"LISTING_STATUS gate: {len(eligible)} eligible symbols loaded; "
+            f"{skipped_ineligible}/{total} universe symbols will be skipped as non-Stock or delisted."
+        )
+    except Exception as e:
+        logger.warning(f"Could not load LISTING_STATUS gate ({e}); proceeding without it.")
+        eligible = None
+
     limiter = RateLimiter(calls_per_minute=75)
 
     for i, symbol in enumerate(active_symbols, start=1):
+        if eligible is not None and symbol not in eligible:
+            logger.info(f"[{i}/{total}] {symbol} — skipped (not Active Stock per LISTING_STATUS)")
+            continue
+
         # Identify missing endpoints to achieve partial idempotency
         endpoints_to_run = []
         for av_function, dir_name in ENDPOINTS:
