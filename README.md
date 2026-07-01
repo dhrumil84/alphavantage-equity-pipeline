@@ -158,6 +158,20 @@ Notebooks under [`notebooks/`](notebooks/) read gold tables directly from R2 via
 DuckDB's `httpfs` extension — see [`validate_pipeline.ipynb`](notebooks/validate_pipeline.ipynb)
 for the connection pattern.
 
+### Price coverage validation notebooks
+
+Use these notebooks when validating `silver/fact_daily_prices` coverage against
+the expected start-date rule (`max(ipo_date, 1999-01-01)`):
+
+- [`price_coverage_audit.ipynb`](notebooks/price_coverage_audit.ipynb)
+     computes all-symbol coverage, late-start counts, and top offenders.
+- [`price_coverage_diagnostics.ipynb`](notebooks/price_coverage_diagnostics.ipynb)
+     drills into selected symbols with silver evidence + bronze key metadata and
+     includes a remediation checklist.
+
+Recommended flow: run audit first, then diagnostics for symbols flagged as
+late-start or missing prices.
+
 ## Repository layout
 
 ```

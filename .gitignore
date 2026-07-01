@@ -16,3 +16,10 @@ config/reconcile/
 
 # Local slide/carousel build artifacts
 deck/
+tmp_duckdb/
+
+# Local script stdout redirects — GH Actions logs go to the Actions UI
+logs/
+
+# Scratch notebooks — promote by renaming off the prefix
+notebooks/scratch_*.ipynb
