@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 from typing import List
 
 from ingestion.utils import av_client, r2_client
+from ingestion.utils.freshness import ENDPOINT_TTL_DAYS, build_fresh_symbol_set
 from ingestion.utils.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
@@ -52,9 +53,16 @@ def main() -> None:
         return
 
     logger.info(f"Ingesting NEWS_SENTIMENT for {total} tickers, time_from={time_from}")
+
+    fresh = build_fresh_symbol_set("news_sentiment_ticker", ENDPOINT_TTL_DAYS["news_sentiment_ticker"])
+
     limiter = RateLimiter(calls_per_minute=75)
 
     for i, symbol in enumerate(symbols, start=1):
+        if symbol in fresh:
+            logger.info(f"[{i}/{total}] {symbol} — skipped (fresh)")
+            continue
+
         r2_key = f"bronze/news_sentiment_ticker/{symbol}/{pull_date}.json"
         if r2_client.key_exists(r2_key):
             logger.info(f"[{i}/{total}] {symbol} — skipped (today's file exists)")

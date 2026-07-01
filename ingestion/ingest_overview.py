@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import List
 
 from ingestion.utils import av_client, r2_client
+from ingestion.utils.freshness import ENDPOINT_TTL_DAYS, build_fresh_symbol_set
 from ingestion.utils.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
@@ -41,13 +42,19 @@ def main():
         return
 
     logger.info(f"Starting company overview ingestion for {total} active tickers.")
-    
+
+    fresh = build_fresh_symbol_set("company_overview", ENDPOINT_TTL_DAYS["company_overview"])
+
     limiter = RateLimiter(calls_per_minute=75)
 
     for i, symbol in enumerate(active_symbols, start=1):
+        if symbol in fresh:
+            logger.info(f"[{i}/{total}] {symbol} — skipped (fresh)")
+            continue
+
         r2_key = f"bronze/company_overview/{symbol}/{pull_date}.json"
 
-        # Idempotency check 
+        # Idempotency check
         if r2_client.key_exists(r2_key):
             logger.info(f"[{i}/{total}] {symbol} — skipped (exists)")
             continue

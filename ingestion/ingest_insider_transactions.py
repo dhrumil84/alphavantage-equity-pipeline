@@ -16,6 +16,7 @@ from datetime import date, datetime, timedelta
 from typing import List
 
 from ingestion.utils import av_client, r2_client
+from ingestion.utils.freshness import ENDPOINT_TTL_DAYS, build_fresh_symbol_set
 from ingestion.utils.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
@@ -50,9 +51,16 @@ def main() -> None:
         return
 
     logger.info(f"Ingesting INSIDER_TRANSACTIONS for {total} tickers from={from_date}")
+
+    fresh = build_fresh_symbol_set("insider_transactions", ENDPOINT_TTL_DAYS["insider_transactions"])
+
     limiter = RateLimiter(calls_per_minute=75)
 
     for i, symbol in enumerate(symbols, start=1):
+        if symbol in fresh:
+            logger.info(f"[{i}/{total}] {symbol} — skipped (fresh)")
+            continue
+
         r2_key = f"bronze/insider_transactions/{symbol}/{pull_date}.json"
         if r2_client.key_exists(r2_key):
             logger.info(f"[{i}/{total}] {symbol} — skipped (exists)")

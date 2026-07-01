@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import List, Dict, Tuple
 
 from ingestion.utils import av_client, r2_client
+from ingestion.utils.freshness import ENDPOINT_TTL_DAYS, build_fresh_symbol_set
 from ingestion.utils.listing_status import load_eligible_stock_symbols
 from ingestion.utils.rate_limiter import RateLimiter
 
@@ -65,6 +66,14 @@ def main():
         logger.warning(f"Could not load LISTING_STATUS gate ({e}); proceeding without it.")
         eligible = None
 
+    # Per-endpoint freshness gate. Fundamentals are quarterly-updated, so a
+    # symbol pulled less than TTL days ago is guaranteed to have identical
+    # AV output today. See ingestion.utils.freshness for TTL rationale.
+    fresh_by_endpoint = {
+        dir_name: build_fresh_symbol_set(dir_name, ENDPOINT_TTL_DAYS[dir_name])
+        for _, dir_name in ENDPOINTS
+    }
+
     limiter = RateLimiter(calls_per_minute=75)
 
     for i, symbol in enumerate(active_symbols, start=1):
@@ -75,6 +84,8 @@ def main():
         # Identify missing endpoints to achieve partial idempotency
         endpoints_to_run = []
         for av_function, dir_name in ENDPOINTS:
+            if symbol in fresh_by_endpoint[dir_name]:
+                continue
             r2_key = f"bronze/{dir_name}/{symbol}/{pull_date}.json"
             if not r2_client.key_exists(r2_key):
                 endpoints_to_run.append((av_function, dir_name, r2_key))
