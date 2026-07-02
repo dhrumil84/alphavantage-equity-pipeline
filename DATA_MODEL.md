@@ -21,7 +21,7 @@ equity-data-lake/
 │   ├── splits/{symbol}/{pull_date}.json
 │   ├── shares_outstanding/{symbol}/{pull_date}.json
 │   ├── listing_status/{pull_date}.csv         # no ticker subfolder — universe-level
-│   ├── earnings_calendar/{pull_date}.csv      # bronze only, no silver table
+│   ├── earnings_calendar/{pull_date}.csv      # universe-level, forward-looking
 │   └── ipo_calendar/{pull_date}.json          # bronze only, no silver table
 │
 └── silver/                                    # cleaned, typed Parquet — query target
@@ -40,6 +40,8 @@ equity-data-lake/
     │   └── fact_cash_flow.parquet
     ├── fact_earnings/
     │   └── fact_earnings.parquet
+    ├── fact_earnings_calendar/
+    │   └── fact_earnings_calendar.parquet
     ├── fact_dividends/
     │   └── fact_dividends.parquet
     └── fact_splits/
@@ -263,6 +265,44 @@ true fiscal-year-end annual entries. The silver transform filters these
 out by detecting the dominant fiscal-year-end MM-DD pattern across all
 entries and keeping only matching rows. Silver should contain only true
 fiscal-year-end annual rows.
+
+---
+
+### `fact_earnings_calendar`
+
+Snapshot-history table, not a latest-state table. EARNINGS_CALENDAR is a
+forward-looking-only endpoint (~3 months ahead), re-pulled daily as one
+universe-wide CSV. The same `(symbol, fiscal_date_ending)` reappears across
+many consecutive pulls until the announcement happens, and the estimated
+`report_date`/`estimate` can shift between pulls — keeping `pull_date` in
+the dedup key preserves that revision history instead of overwriting it.
+
+| Column | Type | Source | Notes |
+|---|---|---|---|
+| symbol | VARCHAR | API | |
+| name | VARCHAR | API | |
+| fiscal_date_ending | DATE | API | Fiscal period this announcement covers |
+| report_date | DATE | API | **Estimated** announcement date, as of this pull |
+| estimate | DECIMAL(18,4) | API | Consensus EPS estimate, as of this pull |
+| currency | VARCHAR | API | |
+| pull_date | DATE | pipeline | Snapshot date |
+
+Deduplication key: `(symbol, fiscal_date_ending, pull_date)`
+
+**Point-in-time queries:** to see what was expected as of a past date `D`,
+filter `pull_date <= D` then take the row with `max(pull_date)` per
+`(symbol, fiscal_date_ending)`. To track estimate/date revisions, group by
+`(symbol, fiscal_date_ending)` and order by `pull_date`.
+
+**Reconciling with actuals:** once `report_date` passes, join to
+`fact_earnings` on `(symbol, fiscal_date_ending)` to compare the estimated
+report date and EPS against what was actually reported.
+
+**Incremental transform:** `transform_earnings_calendar.py` only reads
+bronze files newer than the max `pull_date` already present in this table
+(unlike the ETF/institutional transforms, which only look at the latest
+bronze snapshot) — every daily pull must be folded in to keep the full
+history, not just the newest one.
 
 ---
 
