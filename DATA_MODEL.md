@@ -820,6 +820,56 @@ deltas (lag based on prior pull within ticker).
 
 Cadence: weekly.
 
+### `fact_transcript_sentiment`
+
+One row per `(symbol, quarter)` — call-level sentiment aggregated from
+`fact_transcript_turns`, split by speaker role so management tone can be
+compared against analyst reception. Roles are classified from the free-text
+`title` column: contains "operator" → operator (excluded from averages),
+contains "analyst" → analyst, anything else with a title → management.
+
+| Column | Type | Notes |
+|---|---|---|
+| symbol | VARCHAR | |
+| quarter | VARCHAR | `YYYYQN` |
+| scored_turns | BIGINT | Turns with non-null sentiment |
+| mgmt_turns / analyst_turns | BIGINT | |
+| overall_avg_sentiment | DOUBLE | Mgmt + analyst turns only (operator excluded) |
+| mgmt_avg_sentiment | DOUBLE | Simple average over management turns |
+| analyst_avg_sentiment | DOUBLE | |
+| ceo_cfo_avg_sentiment | DOUBLE | Management narrowed to C-suite titles |
+| mgmt_wtd_sentiment / analyst_wtd_sentiment | DOUBLE | Content-length-weighted averages |
+| mgmt_analyst_spread | DOUBLE | mgmt_avg − analyst_avg; compression = mgmt losing conviction |
+| call_date | DATE | From `dim_earnings_calls` |
+| participant_count | INT | From `dim_earnings_calls` |
+| gold_built_utc | VARCHAR | |
+
+Cadence: weekly (after `transform_earnings_transcripts`).
+
+### `dim_peer_sets`
+
+Up to 5 algorithmically selected peers per active stock, for comp-set
+analysis (e.g. `notebooks/stock_deep_dive.ipynb`, which also accepts a
+manual override list). Selection: same industry preferred (sector backfill
+when the industry pool is thin), candidates more than 100x larger/smaller
+excluded, ranked by `0.6 × market-cap proximity + 0.4 × trailing-2y
+daily-return correlation`.
+
+| Column | Type | Notes |
+|---|---|---|
+| as_of_date | DATE | Build date |
+| symbol | VARCHAR | |
+| peer_rank | INT | 1..5 |
+| peer_symbol | VARCHAR | |
+| peer_name | VARCHAR | |
+| industry_match | BOOLEAN | False = sector-level backfill |
+| log_cap_ratio | DOUBLE | log10(peer cap / symbol cap) |
+| return_corr_2y | DOUBLE | Null when < 126 common trading days |
+| score | DOUBLE | Composite ranking score |
+| gold_built_utc | VARCHAR | |
+
+Cadence: weekly (after `build_dim_company_enriched`).
+
 ### `fact_index_returns`
 
 Parallel to `fact_prices_enriched` but for indices. No volume-based metrics

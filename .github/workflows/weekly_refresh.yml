@@ -77,6 +77,11 @@ jobs:
       #     fact_sector_aggregates (transitively via shared schema).
       #   - build_insider_signals reads silver/fact_insider_transactions
       #   - build_institutional_concentration reads silver/fact_institutional_*
+      #   - build_transcript_sentiment reads silver/fact_transcript_turns +
+      #     silver/dim_earnings_calls (transformed earlier in this job)
+      #   - build_peer_sets reads gold/dim_company_enriched +
+      #     gold/fact_prices_enriched, so it must run AFTER
+      #     build_dim_company_enriched
       run: |
         python -m transform_gold.build_fundamentals_wide
         python -m transform_gold.build_dim_company_enriched
@@ -85,6 +90,8 @@ jobs:
         python -m transform_gold.build_peer_relative
         python -m transform_gold.build_insider_signals
         python -m transform_gold.build_institutional_concentration
+        python -m transform_gold.build_transcript_sentiment
+        python -m transform_gold.build_peer_sets
 
     - name: Data Quality Checks (weekly suite)
       env:
