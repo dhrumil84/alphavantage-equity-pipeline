@@ -4,7 +4,7 @@ import boto3
 import certifi
 from botocore.config import Config
 from botocore.exceptions import ClientError
-from typing import List, Dict, Any
+from typing import List
 from pathlib import Path
 from dotenv import load_dotenv
 

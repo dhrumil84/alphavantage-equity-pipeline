@@ -16,7 +16,6 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-import pandas as pd
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")

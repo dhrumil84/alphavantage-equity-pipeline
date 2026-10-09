@@ -2,7 +2,6 @@ import os
 import csv
 import logging
 import pandas as pd
-from datetime import datetime
 from ingestion.utils import r2_client
 from transform.utils.parquet_writer import upsert_parquet
 
