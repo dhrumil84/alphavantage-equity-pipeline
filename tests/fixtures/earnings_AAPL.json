@@ -1,0 +1,29 @@
+{
+    "symbol": "AAPL",
+    "annualEarnings": [
+        {"fiscalDateEnding": "2025-12-31", "reportedEPS": "7.91"},
+        {"fiscalDateEnding": "2025-09-30", "reportedEPS": "7.46"},
+        {"fiscalDateEnding": "2024-09-30", "reportedEPS": "6.08"},
+        {"fiscalDateEnding": "2023-09-30", "reportedEPS": "6.13"}
+    ],
+    "quarterlyEarnings": [
+        {
+            "fiscalDateEnding": "2025-09-30",
+            "reportedDate": "2025-10-30",
+            "reportedEPS": "1.85",
+            "estimatedEPS": "1.77",
+            "surprise": "0.08",
+            "surprisePercentage": "4.5198",
+            "reportTime": "post-market"
+        },
+        {
+            "fiscalDateEnding": "2025-06-30",
+            "reportedDate": "2025-07-31",
+            "reportedEPS": "1.57",
+            "estimatedEPS": "None",
+            "surprise": "None",
+            "surprisePercentage": "None",
+            "reportTime": "post-market"
+        }
+    ]
+}
