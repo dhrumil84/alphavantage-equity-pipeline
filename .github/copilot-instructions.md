@@ -2,8 +2,22 @@
 
 A personal ELT lakehouse: Alpha Vantage API → Cloudflare R2 (bronze → silver →
 gold) → DuckDB notebooks, orchestrated by GitHub Actions cron. Read
-`PROJECT_BRIEF.md` and `docs/architecture/` (especially the ADRs in
-`docs/architecture/decisions/`) before suggesting structural changes.
+`PROJECT_BRIEF.md`, `README.md`, `DATA_MODEL.md` and `docs/architecture/`
+(especially the ADRs in `docs/architecture/decisions/`) before suggesting
+structural changes.
+
+These rules mirror `CLAUDE.md`, which guides Claude Code in this repo. Keep the
+two files in sync: a rule changed in one should change in the other.
+
+## Do not change without explicit instruction
+
+- **Workflow schedules**: the `on: schedule: cron:` blocks in
+  `.github/workflows/*.yml`.
+- **Ticker lists in `config/`**: `ticker_universe.csv`, `index_universe.csv`,
+  `vti_universe.csv`. Don't edit or regenerate them, and don't suggest running
+  the scripts that rewrite them (`add_ticker.py`, `expand_universe.py`,
+  `promote_to_universe.py`, `reconcile_universe.py`, `ensure_benchmarks.py`).
+- **The tech stack** (below).
 
 ## Stack — fixed, do not substitute
 
@@ -11,17 +25,23 @@ Python 3.11+, `requests`, `boto3`, `pandas`, `pyarrow`, `duckdb`,
 `python-dotenv`. Storage is Cloudflare R2 only; compute is GitHub Actions
 runners only. Do not introduce a database (Postgres, SQLite), Spark/Databricks,
 an ORM, Airflow/Dagster/Prefect, or new heavy dependencies. If a dependency is
-truly needed, add it to `requirements.txt` and say why in the PR.
+truly needed, add it to `requirements.txt` (or `requirements-dev.txt` for
+test/lint tooling) and say why in the PR.
 
 ## Layer rules (ADR 0002 — the most important rules in this repo)
 
-- **Bronze is write-once.** `ingestion/` writes raw API JSON verbatim to
-  `bronze/{dir}/{symbol}/{YYYY-MM-DD}.json`. Never overwrite, mutate, or delete
-  bronze objects — not even to fix a parsing bug. Fix the parser and reprocess
-  from existing bronze instead of re-pulling.
+- **Bronze is write-once.** `ingestion/` writes raw API responses verbatim.
+  Per-symbol endpoints use `bronze/<endpoint>/<SYMBOL>/<pull_date>.json`;
+  universe-wide ones use `bronze/<endpoint>/<pull_date>.<csv|json|xlsx>`
+  (transcripts key by quarter). The README shows a Hive-style
+  `endpoint=…/symbol=…` layout, but the code is authoritative; follow the
+  existing pattern. Never overwrite, mutate, or delete bronze objects, not even
+  to fix a parsing bug. Fix the parser and reprocess from existing bronze
+  instead of re-pulling.
 - **Silver is cleaned source data only.** `transform/` parses bronze into typed
   Parquet under `silver/<table>/`: strip `"None"`/empty strings to real `NULL`
-  (no sentinel zeros), parse dates once to `DATE`, dedupe on a documented key.
+  (no sentinel zeros), parse dates once to `DATE`, dedupe on the table's
+  documented key (latest `pull_date` wins).
   **No derived metrics in silver.** The single exception is
   `fact_cash_flow.free_cash_flow`. Proposing a second exception requires a new
   ADR — flag it, don't add it silently.
@@ -93,20 +113,45 @@ Secrets in workflows. Never hardcode or log them. New variables go in
   `weekly_refresh.yml` in dependency order (ingest → silver → gold → DQ), with
   only the secrets that step needs, and keep `observability.storage_scan` last
   with `if: always()`. Note ordering constraints in a comment on the step.
-- Update `README.md` tables and `docs/architecture/` (data model, pipeline DAG)
-  when adding endpoints or tables.
+- Update `README.md`, `DATA_MODEL.md` and `docs/architecture/` (data model,
+  pipeline DAG) when adding endpoints or tables.
 
-## Testing
+## Testing and lint
 
-There is no unit-test suite yet, and scripts need live R2/Alpha Vantage
-credentials. When suggesting changes, keep parsing/cleaning logic in pure
-functions that can be exercised without network access, and validate against
-the notebooks in `notebooks/` (e.g. `validate_pipeline.ipynb`).
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+python -m pytest
+ruff check .
+```
+
+- Tests run fully offline: `tests/conftest.py` swaps `r2_client` for an on-disk
+  fake (`fake_r2`) and blocks outbound HTTP, so no credentials are needed.
+  Don't write tests that call the real Alpha Vantage API or R2.
+- Fixtures in `tests/fixtures/` mirror Alpha Vantage response shapes (string
+  values, `"None"` for missing). Gold tests point `duckdb_to_r2`/`silver_scan`
+  at the fake bucket.
+- **Every behavior change comes with added or updated tests.** A new transform
+  gets a fixture plus a test asserting schema, null handling, dedup key, and
+  idempotency.
+- Ruff (`ruff.toml`) checks pyflakes plus `E4/E7/E9` only, not formatting.
+  Imports placed after `load_dotenv()` carry `# noqa: E402`. `notebooks/` is
+  excluded.
+- The Tests and Lint workflows run on every PR.
+
+## Working agreements
+
+- Work on a branch and open a PR; never push to `main`.
+- Keep changes scoped to the task; propose larger refactors instead of doing
+  them.
+- A PR description states what tests verified and what only a real pipeline run
+  (with Alpha Vantage and R2 credentials) can verify.
 
 ## When reviewing pull requests
 
 Prioritize, in order: bronze mutation or deletion; derived metrics leaking
-into silver; bypassing the shared rate limiter / AV client / R2 client;
+into silver; changes to cron schedules or `config/` ticker lists that weren't
+asked for; bypassing the shared rate limiter / AV client / R2 client;
 non-idempotent writes or a missing/incorrect dedup key; hardcoded secrets or
 tickers; `"None"` strings or sentinel values instead of NULL; workflow steps
-in the wrong dependency order. Style nits come last.
+in the wrong dependency order; behavior changes without tests. Style nits
+come last.
