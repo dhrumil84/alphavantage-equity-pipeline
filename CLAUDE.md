@@ -48,7 +48,8 @@ by GitHub Actions cron jobs and queried locally with DuckDB.
   `transform_gold/build_<table>.py`. Shared helpers go in the layer's `utils/`.
 - Run modules from the repo root as `python -m <package>.<module>`; transforms read
   `config/ticker_universe.csv` relative to the cwd.
-- Python 3.11 in CI. Match the surrounding code's style; there is no linter configured.
+- Python 3.11 in CI. Match the surrounding code's style. Run `ruff check .` (config in
+  `ruff.toml`; the Lint workflow enforces it on every PR) before opening a PR.
 - When adding a silver/gold table, update `README.md` and `DATA_MODEL.md`.
 
 ## Testing

@@ -1,3 +1,5 @@
 # Test-only dependencies. Install with:
 #   pip install -r requirements.txt -r requirements-dev.txt
 pytest
+# Keep in sync with the pin in .github/workflows/lint.yml
+ruff==0.6.9
