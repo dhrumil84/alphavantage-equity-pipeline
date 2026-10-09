@@ -1,7 +1,5 @@
-import os
 import io
 import sys
-import csv
 import logging
 import pandas as pd
 import pyarrow as pa

@@ -20,13 +20,13 @@ def main():
         logger.info(f"File {r2_key} already exists in R2. Skipping download.")
         return
 
-    logger.info(f"Fetching active listing status from Alpha Vantage...")
+    logger.info("Fetching active listing status from Alpha Vantage...")
     active_bytes = av_client.fetch_csv({
         'function': 'LISTING_STATUS',
         'state': 'active'
     })
 
-    logger.info(f"Fetching delisted listing status from Alpha Vantage...")
+    logger.info("Fetching delisted listing status from Alpha Vantage...")
     delisted_bytes = av_client.fetch_csv({
         'function': 'LISTING_STATUS',
         'state': 'delisted'

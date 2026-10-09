@@ -15,7 +15,7 @@ import csv
 import logging
 import os
 from datetime import datetime
-from typing import List, Set
+from typing import Set
 
 from ingestion.utils import av_client, r2_client
 from ingestion.utils.freshness import ENDPOINT_TTL_DAYS, build_fresh_symbol_set

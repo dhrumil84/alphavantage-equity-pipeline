@@ -123,7 +123,7 @@ def main() -> None:
 
     total = len(vti)
     print()
-    print(f"=== Reconciliation summary ===")
+    print("=== Reconciliation summary ===")
     print(f"  ITOT universe:        {total:>5}")
     print(f"  Matched directly:     {len(matched):>5}  ({100*len(matched)/total:.1f}%)")
     print(f"  Separator mismatch:   {len(mismatch):>5}  (auto-resolvable)")
