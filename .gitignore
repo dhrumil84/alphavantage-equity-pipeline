@@ -23,3 +23,6 @@ logs/
 
 # Scratch notebooks — promote by renaming off the prefix
 notebooks/scratch_*.ipynb
+
+# pytest
+.pytest_cache/

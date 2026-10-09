@@ -1,0 +1,83 @@
+{
+    "symbol": "AAPL",
+    "annualReports": [
+        {
+            "fiscalDateEnding": "2025-09-30",
+            "reportedCurrency": "USD",
+            "grossProfit": "195201000000",
+            "totalRevenue": "416161000000",
+            "costOfRevenue": "220960000000",
+            "operatingIncome": "133050000000",
+            "sellingGeneralAndAdministrative": "27601000000",
+            "researchAndDevelopment": "34550000000",
+            "operatingExpenses": "62151000000",
+            "interestExpense": "None",
+            "incomeBeforeTax": "132729000000",
+            "incomeTaxExpense": "20719000000",
+            "netIncomeFromContinuingOperations": "112010000000",
+            "ebit": "132729000000",
+            "ebitda": "144427000000",
+            "depreciationAndAmortization": "11698000000",
+            "netIncome": "112010000000"
+        },
+        {
+            "fiscalDateEnding": "2024-09-30",
+            "reportedCurrency": "USD",
+            "grossProfit": "180683000000",
+            "totalRevenue": "391035000000",
+            "costOfRevenue": "210352000000",
+            "operatingIncome": "123216000000",
+            "sellingGeneralAndAdministrative": "26097000000",
+            "researchAndDevelopment": "31370000000",
+            "operatingExpenses": "57467000000",
+            "interestExpense": "None",
+            "incomeBeforeTax": "123485000000",
+            "incomeTaxExpense": "29749000000",
+            "netIncomeFromContinuingOperations": "93736000000",
+            "ebit": "123485000000",
+            "ebitda": "134930000000",
+            "depreciationAndAmortization": "11445000000",
+            "netIncome": "93736000000"
+        }
+    ],
+    "quarterlyReports": [
+        {
+            "fiscalDateEnding": "2025-09-30",
+            "reportedCurrency": "USD",
+            "grossProfit": "48341000000",
+            "totalRevenue": "102466000000",
+            "costOfRevenue": "54125000000",
+            "operatingIncome": "32427000000",
+            "sellingGeneralAndAdministrative": "7048000000",
+            "researchAndDevelopment": "8866000000",
+            "operatingExpenses": "15914000000",
+            "interestExpense": "None",
+            "incomeBeforeTax": "32803000000",
+            "incomeTaxExpense": "5337000000",
+            "netIncomeFromContinuingOperations": "27466000000",
+            "ebit": "32803000000",
+            "ebitda": "35830000000",
+            "depreciationAndAmortization": "3027000000",
+            "netIncome": "27466000000"
+        },
+        {
+            "fiscalDateEnding": "2025-06-30",
+            "reportedCurrency": "USD",
+            "grossProfit": "43718000000",
+            "totalRevenue": "94036000000",
+            "costOfRevenue": "50318000000",
+            "operatingIncome": "28202000000",
+            "sellingGeneralAndAdministrative": "6650000000",
+            "researchAndDevelopment": "8866000000",
+            "operatingExpenses": "15516000000",
+            "interestExpense": "None",
+            "incomeBeforeTax": "28031000000",
+            "incomeTaxExpense": "4597000000",
+            "netIncomeFromContinuingOperations": "23434000000",
+            "ebit": "28031000000",
+            "ebitda": "30861000000",
+            "depreciationAndAmortization": "2830000000",
+            "netIncome": "23434000000"
+        }
+    ]
+}

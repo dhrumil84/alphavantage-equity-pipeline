@@ -1,0 +1,33 @@
+{
+    "symbol": "AAPL",
+    "annualReports": [
+        {
+            "fiscalDateEnding": "2025-09-30",
+            "reportedCurrency": "USD",
+            "operatingCashflow": "111482000000",
+            "capitalExpenditures": "12715000000",
+            "dividendPayout": "15421000000",
+            "paymentsForRepurchaseOfCommonStock": "90711000000",
+            "proceedsFromIssuanceOfLongTermDebtAndCapitalSecuritiesNet": "4481000000",
+            "proceedsFromRepaymentsOfShortTermDebt": "None",
+            "cashflowFromInvestment": "15195000000",
+            "cashflowFromFinancing": "-120686000000",
+            "changeInCashAndCashEquivalents": "5991000000"
+        }
+    ],
+    "quarterlyReports": [
+        {
+            "fiscalDateEnding": "2025-09-30",
+            "reportedCurrency": "USD",
+            "operatingCashflow": "29728000000",
+            "capitalExpenditures": "None",
+            "dividendPayout": "3862000000",
+            "paymentsForRepurchaseOfCommonStock": "20132000000",
+            "proceedsFromIssuanceOfLongTermDebtAndCapitalSecuritiesNet": "None",
+            "proceedsFromRepaymentsOfShortTermDebt": "None",
+            "cashflowFromInvestment": "-1234000000",
+            "cashflowFromFinancing": "-27449000000",
+            "changeInCashAndCashEquivalents": "1045000000"
+        }
+    ]
+}
