@@ -37,7 +37,7 @@ jobs:
             exit 1
           fi
           echo "Dependency installation failed (attempt $attempt). Retrying..."
-          sleep 10
+          sleep $((attempt * 30))
         done
 
     - name: Run Ingestions
