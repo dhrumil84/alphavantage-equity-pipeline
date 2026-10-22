@@ -33,11 +33,11 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         for attempt in 1 2 3; do
-          pip_args="-r requirements.txt"
+          pip_args=(-r requirements.txt)
           if [ "$attempt" -gt 1 ]; then
-            pip_args="--no-cache-dir -r requirements.txt"
+            pip_args=(--no-cache-dir -r requirements.txt)
           fi
-          if pip install $pip_args; then
+          if pip install "${pip_args[@]}"; then
             break
           fi
           if [ "$attempt" -eq 3 ]; then
