@@ -32,7 +32,21 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
+        for attempt in 1 2 3; do
+          pip_args=(-r requirements.txt)
+          if [ "$attempt" -gt 1 ]; then
+            pip_args=(--no-cache-dir -r requirements.txt)
+          fi
+          if pip install "${pip_args[@]}"; then
+            break
+          fi
+          if [ "$attempt" -eq 3 ]; then
+            echo "Dependency installation failed after 3 attempts."
+            exit 1
+          fi
+          echo "Dependency installation failed (attempt $attempt). Retrying..."
+          sleep $((attempt * 30))
+        done
 
     - name: Ingest Daily Prices
       env:
