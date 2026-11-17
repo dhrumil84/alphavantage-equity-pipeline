@@ -12,6 +12,7 @@ the API payload). Strategy: scan latest bronze per ETF.
 from __future__ import annotations
 
 import logging
+from datetime import date
 from typing import List
 
 import pandas as pd
@@ -29,6 +30,28 @@ def _safe_float(v) -> float | None:
     try:
         return float(v)
     except (TypeError, ValueError):
+        return None
+
+
+_MISSING = {"", "none", "n/a", "na", "null", "-"}
+
+
+def _safe_str(v) -> str | None:
+    """Return v as a string, or None for AV's missing-value placeholders."""
+    if v is None or str(v).strip().lower() in _MISSING:
+        return None
+    return str(v)
+
+
+def _safe_date(v) -> date | None:
+    """Parse an ISO date; AV sends placeholders like "n/a" for unknown dates."""
+    s = _safe_str(v)
+    if s is None:
+        return None
+    try:
+        return date.fromisoformat(s)
+    except ValueError:
+        logger.warning(f"Unparseable date {v!r}; storing NULL")
         return None
 
 
@@ -72,8 +95,8 @@ def main() -> None:
             "net_expense_ratio": _safe_float(data.get("net_expense_ratio")),
             "portfolio_turnover": _safe_float(data.get("portfolio_turnover")),
             "dividend_yield": _safe_float(data.get("dividend_yield")),
-            "inception_date": data.get("inception_date"),
-            "leveraged": data.get("leveraged"),
+            "inception_date": _safe_date(data.get("inception_date")),
+            "leveraged": _safe_str(data.get("leveraged")),
             "pull_date": pull_date,
         })
 

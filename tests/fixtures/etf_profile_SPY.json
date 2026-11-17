@@ -1,0 +1,17 @@
+{
+    "net_assets": "632000000000",
+    "net_expense_ratio": "0.000945",
+    "portfolio_turnover": "0.03",
+    "dividend_yield": "0.0121",
+    "inception_date": "1993-01-22",
+    "leveraged": "NO",
+    "sectors": [
+        {"sector": "INFORMATION TECHNOLOGY", "weight": "0.334"},
+        {"sector": "FINANCIALS", "weight": "0.135"}
+    ],
+    "holdings": [
+        {"symbol": "NVDA", "description": "NVIDIA CORP", "weight": "0.0745"},
+        {"symbol": "AAPL", "description": "APPLE INC", "weight": "0.0661"},
+        {"symbol": "n/a", "description": "CASH", "weight": "0.001"}
+    ]
+}
